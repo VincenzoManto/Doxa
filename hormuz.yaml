@@ -1,0 +1,122 @@
+# =============================================================================
+#  NexusFish — World Definition
+#  Scenario: "Operation Persian Shield" (Regional Escalation)
+#
+#  Context: Direct military confrontation between Israel and Iran. 
+#  The "Shadow War" has moved into the open. The US maintains a massive 
+#  naval presence to deter a total regional collapse.
+# =============================================================================
+
+scenario_name: "Operation Persian Shield – The Brink"
+
+scenario_description: >
+  Following recent direct missile exchanges between Tel Aviv and Tehran, 
+  the Middle East is at a breaking point. Israel is weighing strikes on 
+  nuclear infrastructure, Iran threatens to close the Strait of Hormuz, 
+  and the U.S. has deployed carrier strike groups and THAAD batteries. 
+  "Axis of Resistance" proxies (Hezbollah, Houthis) are on high alert.
+
+social_groups:
+
+  - id: "idf_israel_command"
+    persona: >
+      Israeli military leadership. Driven by existential survival and the 
+      doctrine of "disproportionate response." Zero tolerance for nuclear 
+      threats. Relies on technological superiority, intelligence coups, 
+      and surgical kinetic strikes.
+    influence: 0.90
+    platform: "military_briefing"
+    emotional_bias: "fierce_determination"
+
+  - id: "irgc_iran_tehran"
+    persona: >
+      Islamic Revolutionary Guard Corps. Strategy based on "strategic 
+      patience" punctuated by high-lethal demonstrations. Manages regional 
+      proxies. Goal: Deter the U.S., isolate Israel, and secure the 
+      Revolutionary regime's survival.
+    influence: 0.88
+    platform: "state_tv_iran"
+    emotional_bias: "ideological_resilience"
+
+  - id: "white_house_pentagon"
+    persona: >
+      U.S. Administration. Balancing ironclad support for Israel with the 
+      desperate need to prevent a regional war that would spike oil prices 
+      and trigger a global recession. Focus on "De-escalation through Strength."
+    influence: 0.95
+    platform: "official_statements"
+    emotional_bias: "geopolitical_calculation"
+
+  - id: "axis_of_resistance_proxies"
+    persona: >
+      Hezbollah, Houthis, and Iraqi militias. Operates asymmetrically. 
+      Capable of saturating air defenses and disrupting global shipping. 
+      Highly active in visual propaganda and psychological warfare.
+    influence: 0.75
+    platform: "telegram"
+    emotional_bias: "aggression"
+
+  - id: "osint_intelligence_community"
+    persona: >
+      Independent analysts monitoring flight transponders (B-52s, tankers) 
+      and commercial satellite imagery. Often beat official news outlets 
+      to the punch, influencing market sentiment and public panic.
+    influence: 0.70
+    platform: "twitter_x"
+    emotional_bias: "hyper_vigilance"
+
+  - id: "gcc_arab_petrostates"
+    persona: >
+      Saudi Arabia, UAE, and Qatar. Caught between fear of Iranian 
+      retaliation and the need for stability for economic projects. 
+      Trying to maintain "neutrality" to avoid becoming collateral targets.
+    influence: 0.65
+    platform: "diplomatic_channels"
+    emotional_bias: "apprehension"
+
+  - id: "global_public_opinion"
+    persona: >
+      Civilian populations in the West and beyond. Divided between 
+      humanitarian concerns, fear of terrorism, and anger over rising 
+      energy costs. High levels of "war fatigue" and polarization.
+    influence: 0.80
+    platform: "social_media"
+    emotional_bias: "polarization"
+
+# -----------------------------------------------------------------------------
+# Relationships
+# -----------------------------------------------------------------------------
+relationships:
+  - source: "white_house_pentagon"
+    target: "idf_israel_command"
+    trust: 0.85
+    description: "Deep strategic alliance with significant tactical friction."
+
+  - source: "irgc_iran_tehran"
+    target: "axis_of_resistance_proxies"
+    trust: 0.95
+    description: "Total logistical, ideological, and financial coordination."
+
+  - source: "idf_israel_command"
+    target: "irgc_iran_tehran"
+    trust: 0.05
+    description: "Total nemesis. Zero trust, only hostile monitoring."
+
+  - source: "gcc_arab_petrostates"
+    target: "white_house_pentagon"
+    trust: 0.55
+    description: "Dependence on U.S. security umbrella but wary of U.S. consistency."
+
+# -----------------------------------------------------------------------------
+# Metadata
+# -----------------------------------------------------------------------------
+tags:
+  - middle-east
+  - iran-israel-conflict
+  - proxy-war
+  - energy-security
+
+extra:
+  geographic_region: "Persian Gulf / Levant"
+  time_horizon_hours: 48
+  primary_language: "en"
