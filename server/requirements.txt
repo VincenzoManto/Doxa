@@ -1,0 +1,12 @@
+flask
+flask-socketio
+flask-cors
+pydantic
+pyyaml
+httpx
+uvicorn
+gevent
+gevent-websocket
+python-dotenv
+crewai
+langchain-ollama
