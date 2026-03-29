@@ -23,25 +23,36 @@ const App: React.FC = () => {
   const [thoughts, setThoughts] = useState<Record<string, string>>({});
   const [showGodMode, setShowGodMode] = useState(false);
 
+  // Load initial agent list and portfolios
   useEffect(() => {
-    fetch('/api/simulation/history')
-      .then(res => res.json())
-      .then(data => { if (data.history) setMessages(data.history); })
-      .catch(err => console.error("History fetch fail:", err));
+    Promise.all([
+      fetch('/api/agents').then(res => res.json()),
+      fetch('/api/portfolios').then(res => res.json()),
+      fetch('/api/trades').then(res => res.json())
+    ])
+      .then(([agentsData, portfoliosData, tradesData]) => {
+        setWorldState({
+          agents: agentsData.agents,
+          portfolios: portfoliosData.portfolios,
+          trades: tradesData.trades,
+        });
+      })
+      .catch(err => console.error('Initial data fetch fail:', err));
   }, []);
 
-  useEffect(() => {
-    if (!socket) return;
-    socket.on('chat_message', (msg: Message) => setMessages((prev) => [...prev.slice(-100), msg]));
-    socket.on('state_update', (state: any) => {
-      setWorldState(state);
-      if (state.thoughts) setThoughts(state.thoughts);
-      // Auto-select first agent if none
-      if (!selectedAgentId && state.actors && Object.keys(state.actors).length > 0) {
-        setSelectedAgentId(Object.keys(state.actors)[0]);
-      }
-    });
-  }, [socket, selectedAgentId]);
+  // TODO: Update this effect after WebSocket refactor
+  // useEffect(() => {
+  //   if (!socket) return;
+  //   socket.on('chat_message', (msg: Message) => setMessages((prev) => [...prev.slice(-100), msg]));
+  //   socket.on('state_update', (state: any) => {
+  //     setWorldState(state);
+  //     if (state.thoughts) setThoughts(state.thoughts);
+  //     // Auto-select first agent if none
+  //     if (!selectedAgentId && state.actors && Object.keys(state.actors).length > 0) {
+  //       setSelectedAgentId(Object.keys(state.actors)[0]);
+  //     }
+  //   });
+  // }, [socket, selectedAgentId]);
 
   const selectedAgent = selectedAgentId ? worldState?.actors?.[selectedAgentId] : null;
 
@@ -50,11 +61,11 @@ const App: React.FC = () => {
       {/* Header / Toolbar */}
       <header className="h-10 px-4 flex items-center justify-between border-b border-[#1f1f1f] bg-[#121212] z-20">
         <div className="flex items-center gap-4">
-          <span className="font-bold tracking-tight text-white uppercase">Nexus.NexusFish</span>
+          <span className="font-bold tracking-tight text-white uppercase">Doxa Scenario Research</span>
           <div className="h-4 w-px bg-[#1f1f1f]" />
           <div className="flex items-center gap-2 opacity-50 font-mono text-[10px]">
             <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-blue-500' : 'bg-red-500'}`} />
-            {status.toUpperCase()} @ LOCALHOST:5000
+            {status.toUpperCase()} @ LOCALHOST:8000
           </div>
         </div>
         
@@ -74,8 +85,9 @@ const App: React.FC = () => {
           >
             <SettingsIcon className="w-4 h-4" />
           </button>
+          {/* Replace with /api/reset for simulation reset */}
           <button 
-            onClick={() => fetch('/api/simulation/start', { method: 'POST' })}
+            onClick={() => fetch('/api/reset', { method: 'POST' })}
             className="px-4 py-1 bg-blue-600 text-white font-bold rounded hover:bg-blue-500 transition-colors"
           >
             START_SIM

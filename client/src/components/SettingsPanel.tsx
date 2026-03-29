@@ -14,39 +14,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose }) => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<boolean>(false);
 
-  useEffect(() => {
-    if (isOpen) {
-      fetchConfig();
-    }
-  }, [isOpen]);
-
-  const fetchConfig = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await axios.get('/api/config');
-      setConfig(response.data.config);
-    } catch (err: any) {
-      setError('Failed to load configuration: ' + (err.response?.data?.error || err.message));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleSave = async () => {
-    setIsLoading(true);
-    setError(null);
-    setSuccess(false);
-    try {
-      await axios.post('/api/config', { config });
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
-    } catch (err: any) {
-      setError('Failed to save configuration: ' + (err.response?.data?.error || err.message));
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // SettingsPanel will be repurposed for academic scenario settings or left as a placeholder for now.
+  // Remove legacy /api/config logic. You may add scenario settings here in the future.
 
   return (
     <AnimatePresence>
