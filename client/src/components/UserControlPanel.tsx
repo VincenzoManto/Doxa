@@ -22,33 +22,31 @@ const UserControlPanel: React.FC<UserControlPanelProps> = ({ actors, resources }
     const [target, setTarget] = useState(actors[1]?.id || '');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const handleInject = async () => {
+    const handleGodmode = async () => {
         setIsSubmitting(true);
         try {
-            const payload: any = {
-                type: actionType,
-                sender: selectedActor,
-            };
-
+            let action = '';
+            let params: any = {};
             if (actionType === 'MESSAGE') {
-                payload.type = 'PUBLIC_MSG'; // Mapping to backend internal logic or just generic
-                payload.content = content;
+                action = 'send_message';
+                params = { to: target, message: content };
             } else if (actionType === 'TRADE') {
-                payload.target = target;
-                payload.resource = resource;
-                payload.amount = amount;
+                action = 'impersonate_action';
+                params = { agent: selectedActor, function: 'trade', args: { target, resource, amount } };
+            } else if (actionType === 'INJECT_RESOURCE') {
+                action = 'inject_resource';
+                params = { agent: selectedActor, resource, amount };
             }
-
-            await axios.post('/api/simulation/inject', payload);
+            await axios.post('/api/godmode', { action, params });
             setContent('');
-            alert('Action Injected Successfully');
+            alert('Godmode action sent successfully');
         } catch (err) {
             console.error(err);
-            alert('Failed to inject action');
+            alert('Failed to send godmode action');
         } finally {
             setIsSubmitting(false);
         }
-    };
+    }
 
     return (
         <motion.div 

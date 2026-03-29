@@ -1,0 +1,228 @@
+\documentclass{article}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{authblk}
+
+\title{Doxa: A Modular Multi-Agent Simulation Framework for Economic and Game-Theoretic Research}
+\author[1]{Your Name}
+\affil[1]{Your Institution, Department, City, Country}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We present \textbf{Doxa}, a novel Python-based simulation engine for multi-agent economic and game-theoretic experiments. Doxa enables the modeling of agent interactions, resource exchanges, and strategic behavior under customizable rules and constraints. The framework supports reinforcement learning, resource allocation, and repeated games, with extensible support for Large Language Model (LLM)-driven agents and retrieval-augmented generation (RAG) memory. We formalize the architecture, present algorithms, and introduce a new research branch: \emph{Computational Institutional Game Theory with LLM-Augmented Agents}. We provide benchmarks, case studies, and discuss the implications for computational economics, experimental game theory, and AI alignment.
+\end{abstract}
+
+\section{Introduction}
+Multi-agent simulations are essential tools in economics and game theory, enabling the study of strategic interactions, resource allocation, and emergent phenomena. However, existing frameworks often lack modularity, extensibility, or integration with modern AI. We introduce Doxa, a modular Python framework that enables the design and execution of complex simulations, supporting LLM-augmented agents, institutional rules, and persistent memory. Doxa opens a new research direction: \emph{Computational Institutional Game Theory with LLM-Augmented Agents}, bridging economics, computer science, and AI.
+
+\paragraph{Contributions.} Our main contributions are:
+\begin{itemize}
+    \item A formal architecture for modular, multi-agent economic simulations with institutional constraints.
+    \item Integration of LLM-driven agents and RAG memory for advanced reasoning and adaptation.
+    \item A flexible YAML-based configuration for rapid prototyping of economic/game-theoretic scenarios.
+    \item Algorithms for agent interaction, trade, and operation execution under constraints.
+    \item Benchmarks and case studies demonstrating emergent phenomena and strategic behavior.
+    \item A new research branch: \emph{Computational Institutional Game Theory with LLM-Augmented Agents}.
+\end{itemize}
+
+\paragraph{Paper Structure.} Section~\ref{sec:related} reviews related work. Section~\ref{sec:architecture} details the architecture. Section~\ref{sec:formalization} formalizes the model. Section~\ref{sec:algorithms} presents algorithms. Section~\ref{sec:experiments} reports experiments. Section~\ref{sec:branch} introduces the new research branch. Section~\ref{sec:conclusion} concludes.
+
+
+\section{Related Work}
+\label{sec:related}
+Multi-agent simulation frameworks have a long history in economics and game theory~\cite{tesfatsion2006agent, axelrod1997advancing}. Recent advances integrate AI and reinforcement learning~\cite{leibo2017multi, yang2020overview}. LLM-augmented agents are an emerging topic~\cite{park2023generative}. Doxa differs by combining modular institutional rules, LLMs, and persistent memory in a unified, extensible framework.
+
+\section{Framework Architecture}
+\label{sec:architecture}
+Doxa is structured around three core components:
+\begin{itemize}
+    \item \textbf{Agents}: Autonomous entities with configurable personas, constraints, and capabilities (e.g., trading, communication, RAG memory).
+    \item \textbf{Environment}: Manages agent portfolios, trades, and global rules, ensuring thread-safe operations and constraint enforcement.
+    \item \textbf{Engine}: Orchestrates simulation epochs, agent turns, and victory conditions, supporting both sequential and parallel execution.
+\end{itemize}
+
+
+\subsection{Agent Design}
+Agents in Doxa are instances of the \texttt{DoxaAgent} class, inheriting from a conversational agent base. Each agent is defined by:
+\begin{itemize}
+    \item \textbf{Persona}: Natural language description guiding behavior.
+    \item \textbf{Constraints}: Resource and action bounds (e.g., min/max holdings).
+    \item \textbf{Capabilities}: Trading, communication, RAG memory, custom operations.
+    \item \textbf{LLM Integration}: Agents can use LLMs (OpenAI, Ollama, etc.) for decision-making.
+    \item \textbf{Memory}: Persistent vector memory (ChromaDB) for knowledge storage and retrieval.
+    \item \textbf{Leadership}: Optional leader/sub-agent hierarchies for task delegation.
+\end{itemize}
+Agents register tools (trading, thinking, messaging, RAG) and custom operations, exposed to the LLM for tool-augmented reasoning.
+
+
+\subsection{Environment and Operations}
+The \texttt{SimulationEnvironment} class manages:
+\begin{itemize}
+    \item \textbf{Portfolios}: Resource holdings for each agent.
+    \item \textbf{Trades}: Proposals, acceptance, and resolution with constraint checks.
+    \item \textbf{Operations}: Custom actions (production, cooperation, etc.) defined in YAML.
+    \item \textbf{Thread Safety}: All state changes are protected by locks for atomicity.
+    \item \textbf{Victory Conditions}: Individual and global win criteria.
+\end{itemize}
+The environment exposes APIs for godmode interventions and data export.
+
+
+\subsection{Extensibility}
+Doxa supports:
+\begin{itemize}
+    \item Custom agent types, operations, and constraints via YAML configuration.
+    \item Integration with multiple LLM providers and models.
+    \item Persistent RAG memory for agent knowledge and learning.
+    \item Godmode API for external interventions, debugging, and data export.
+    \item Rapid prototyping of new economic/game-theoretic scenarios.
+\end{itemize}
+
+\subsection{Software Architecture}
+\begin{figure}[h]
+    \centering
+    %\includegraphics[width=0.8\textwidth]{architecture.pdf}
+    \caption{High-level architecture of Doxa.}
+    \label{fig:architecture}
+\end{figure}
+
+
+\section{Formal Model and Mathematical Foundations}
+\label{sec:formalization}
+Let $N$ be the set of agents, $R$ the set of resources, and $A$ the set of actions. Each agent $i \in N$ has a portfolio $p_i: R \to \mathbb{R}$, a set of constraints $C_i$, and a policy $\pi_i$ (possibly LLM-driven). The environment is defined by a tuple $\mathcal{E} = (N, R, A, \mathcal{O}, C, V)$, where $\mathcal{O}$ is the set of operations, $C$ the global constraints, and $V$ the victory conditions.
+
+\paragraph{Operations.} Each operation $o \in \mathcal{O}$ is a tuple $(\text{input}, \text{output}, \text{target\_impact})$ with resource flows and optional target effects.
+
+\paragraph{Trade.} A trade is a tuple $(i, j, g, t)$ where $i$ offers $g$ to $j$ in exchange for $t$, subject to constraints.
+
+\paragraph{Agent Policy.} Policies $\pi_i$ map state and message history to actions, possibly using LLMs and RAG memory.
+
+\paragraph{Game Dynamics.} The simulation proceeds in epochs and steps, with agents acting sequentially or in parallel. State transitions are deterministic given actions, except for LLM stochasticity.
+
+\section{Algorithms}
+\label{sec:algorithms}
+We present the main algorithms in Doxa. Pseudocode is provided for clarity.
+
+\subsection{Agent Step}
+\begin{algorithm}[h]
+\caption{Agent Step}
+\begin{algorithmic}[1]
+\REQUIRE Agent $a$, Environment $\mathcal{E}$
+\STATE Observe state $s \leftarrow \mathcal{E}$
+\STATE $m \leftarrow$ Compose system prompt (persona, state, rules)
+\STATE $r \leftarrow \pi_a(s, m)$ (LLM or scripted)
+\IF{$r$ is tool call}
+    \STATE Execute tool, update $\mathcal{E}$
+\ELSE
+    \STATE Log thought
+\ENDIF
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Trade Resolution}
+\begin{algorithm}[h]
+\caption{Trade Resolution}
+\begin{algorithmic}[1]
+\REQUIRE Trade $t = (i, j, g, t)$, Portfolios $p_i, p_j$, Constraints $C_i, C_j$
+\IF{constraints satisfied}
+    \STATE Update $p_i, p_j$ with resource exchange
+    \STATE Remove trade from pending
+    \STATE Return success
+\ELSE
+    \STATE Reject trade
+\ENDIF
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{RAG Memory}
+Agents can store and retrieve knowledge using vector memory. Let $M_i$ be the memory of agent $i$.
+
+\section{Economic and Game-Theoretic Contributions}
+Doxa enables the study of a wide range of economic and game-theoretic scenarios, including:
+\begin{itemize}
+    \item \textbf{Resource Exchange and Trade}: Agents negotiate and execute trades, subject to portfolio constraints and strategic incentives.
+    \item \textbf{Repeated and Stochastic Games}: The framework supports repeated and stochastic interactions, enabling the study of cooperation, defection, and reputation.
+    \item \textbf{Constraint-Based Strategy}: Agents operate under resource and behavioral constraints, modeling bounded rationality and institutional rules.
+    \item \textbf{LLM-Augmented Decision Making}: By integrating LLMs, Doxa enables language-based strategies, communication, and emergent reasoning.
+    \item \textbf{Retrieval-Augmented Memory}: Agents can store and retrieve knowledge, supporting learning, adaptation, and meta-reasoning.
+    \item \textbf{Institutional Design}: Doxa allows rapid prototyping of institutional rules and their impact on agent behavior.
+\end{itemize}
+
+
+\section{Benchmarks and Experiments}
+\label{sec:experiments}
+We evaluate Doxa on several scenarios:
+\begin{itemize}
+    \item \textbf{Iterated Prisoner's Dilemma with Trade}: Agents choose to cooperate or defect, with payoffs and constraints defined in YAML. We analyze the emergence of cooperation and the effect of trade.
+    \item \textbf{Resource Allocation Game}: Agents compete for limited resources, subject to institutional constraints.
+    \item \textbf{Institutional Change}: We vary global rules and observe the impact on agent strategies and outcomes.
+\end{itemize}
+
+\subsection{Experimental Setup}
+Simulations are run with $N=2$ to $N=10$ agents, using both scripted and LLM-driven policies. Metrics include resource distribution, trade frequency, and victory rates.
+
+\subsection{Results}
+\begin{figure}[h]
+    \centering
+    %\includegraphics[width=0.7\textwidth]{results.pdf}
+    \caption{Emergence of cooperation and trade in the iterated dilemma.}
+    \label{fig:results}
+\end{figure}
+
+\subsection{Discussion}
+Doxa enables rapid exploration of institutional and agent-level parameters, revealing complex dynamics and emergent phenomena. LLM-augmented agents exhibit novel strategies and communication patterns.
+
+\section{A New Branch: Computational Institutional Game Theory with LLM-Augmented Agents}
+\label{sec:branch}
+We propose a new research branch: \emph{Computational Institutional Game Theory with LLM-Augmented Agents}. This field studies the interplay between institutional rules, agent cognition (including LLMs), and emergent economic/game-theoretic phenomena. Doxa provides a testbed for:
+\begin{itemize}
+    \item Designing and benchmarking new institutional mechanisms.
+    \item Studying the impact of LLM-based reasoning and communication.
+    \item Exploring AI alignment, robustness, and adaptation in economic settings.
+    \item Integrating symbolic and neural reasoning in agent policies.
+\end{itemize}
+
+\section{Limitations and Future Work}
+Doxa is a research prototype. Limitations include scalability, LLM cost, and the need for richer learning algorithms. Future work includes:
+\begin{itemize}
+    \item Support for large-scale simulations and distributed execution.
+    \item Integration with empirical data and real-world institutions.
+    \item Advanced agent learning (RL, meta-learning, hybrid symbolic-neural policies).
+    \item Richer market mechanisms and institutional complexity.
+\end{itemize}
+
+
+\section{Conclusion}
+Doxa provides a flexible, extensible platform for computational experiments in economics and game theory, and opens a new research direction at the intersection of AI, economics, and institutional design. We invite the community to build on this foundation.
+
+
+\section*{Acknowledgments}
+The authors thank the open-source community and contributors to Doxa. This work was supported by [Your Funding Source].
+
+\bibliographystyle{plain}
+\begin{thebibliography}{10}
+
+\bibitem{tesfatsion2006agent}
+Leigh Tesfatsion and Kenneth L. Judd, editors. \emph{Handbook of Computational Economics, Vol. 2: Agent-Based Computational Economics}. Elsevier, 2006.
+
+\bibitem{axelrod1997advancing}
+Robert Axelrod. Advancing the art of simulation in the social sciences. \emph{Complexity}, 3(2):16--22, 1997.
+
+\bibitem{leibo2017multi}
+Joel Z. Leibo, Vinicius Zambaldi, Marc Lanctot, Janusz Marecki, and Thore Graepel. Multi-agent reinforcement learning in sequential social dilemmas. In \emph{Proceedings of the 16th International Conference on Autonomous Agents and Multiagent Systems}, 2017.
+
+\bibitem{yang2020overview}
+Yaodong Yang, Rui Luo, Minne Li, Ming Zhou, Weinan Zhang, Jun Wang, and Yong Yu. An overview of multi-agent reinforcement learning from game theoretical perspective. \emph{arXiv preprint arXiv:1812.11794}, 2020.
+
+\bibitem{park2023generative}
+Joseph Park, et al. Generative Agents: Interactive Simulacra of Human Behavior. \emph{arXiv preprint arXiv:2304.03442}, 2023.
+
+\end{thebibliography}
+
+\end{document}
