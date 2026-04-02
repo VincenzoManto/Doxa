@@ -5,6 +5,7 @@ import random
 from copy import deepcopy
 from typing import Annotated, List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
+#import google_genai
 # RAG/Memory imports
 import os
 import tempfile
@@ -14,29 +15,27 @@ from autogen_ext.memory.chromadb import ChromaDBVectorMemory, PersistentChromaDB
 # ==========================================
 # 1. UI & LOGGING
 # ==========================================
+
 class ConsoleLogger:
-    @staticmethod
-    def print_header(text): print(f"\n\033[96m{'═'*60}\n{text}\n{'═'*60}\033[0m")
-    @staticmethod
-    def print_epoch(n): print(f"\n\033[1;35m--- EPOCH {n} STARTING ---\033[0m")
-    @staticmethod
-    def print_step(step): print(f"\n\033[1;37m{'—'*20} GLOBAL STEP {step} {'—'*20}\033[0m")
-    @staticmethod
-    def print_turn(agent_id): print(f"\n\033[1;33m► TURN: {agent_id.upper()}\033[0m")
-    @staticmethod
-    def print_think(agent_id, thought): print(f"\033[90m[{agent_id}] THINK: {thought}\033[0m")
-    @staticmethod
-    def print_action(agent_id, action, target, res):
+    def print_header(self, text): print(f"\n\033[96m{'═'*60}\n{text}\n{'═'*60}\033[0m")
+    def print_epoch(self, n): print(f"\n\033[1;35m--- EPOCH {n} STARTING ---\033[0m")
+    def print_step(self, step): print(f"\n\033[1;37m{'—'*20} GLOBAL STEP {step} {'—'*20}\033[0m")
+    def print_kill(self, agent_id, reason): print(f"\n\033[41mAGENT {agent_id.upper()} KILLED: {reason}\033[0m")
+    def print_turn(self, agent_id): print(f"\n\033[1;33m► TURN: {agent_id.upper()}\033[0m")
+    def print_think(self, agent_id, thought): print(f"\033[90m[{agent_id}] THINK: {thought}\033[0m")
+    def print_action(self, agent_id, action, target, res):
         color = "\033[32m" if "SUCCESS" in res else "\033[31m"
         tgt = f" on {target}" if target else ""
         print(f"  \033[36m└─ [ACTION] {action}{tgt} -> {color}{res}\033[0m")
-    @staticmethod
-    def print_delta(before, after):
+    def print_delta(self, before, after):
         for res in set(before.keys()) | set(after.keys()):
             diff = after.get(res, 0) - before.get(res, 0)
             if diff > 0: print(f"     \033[92m▲ +{diff} {res}\033[0m")
             elif diff < 0: print(f"     \033[91m▼ {diff} {res}\033[0m")
     def print(self, text): print(f"\033[90m{text}\033[0m")
+    def print_communication(self, sender, message, target = "PUBLIC"):
+        color = "\033[34m" if target == "PUBLIC" else "\033[35m"
+        print(f"{color}[{sender} -> {target}]: {message}\033[0m")
 # ==========================================
 # 2. DOXA AGENT
 # ==========================================
@@ -44,6 +43,7 @@ class DoxaAgent(autogen.ConversableAgent):
     def __init__(self, agent_id, config, env):
         self.agent_id = agent_id
         self.env = env
+        self.logger = env.log
         self.persona = config.get('persona', "")
         self.config = config
         self.is_leader = config.get('leader', False)
@@ -75,12 +75,12 @@ class DoxaAgent(autogen.ConversableAgent):
                 }],
                 "temperature": 0.1,
             }
-        elif provider == 'genai':
+        elif provider == 'google':
             llm_config = {
                 "config_list": [{
                     "model": model,
-                    "api_type": "genai",
-                    "api_key": config.get('api_key', os.environ.get('GENAI_API_KEY', '')),
+                    "api_type": "google",
+                    "api_key": config.get('api_key', 'AIzaSyABmY06JX28X0000_lKS875yf-WIXv7-70'),
                     "base_url": config.get('base_url', 'https://generativelanguage.googleapis.com/v1beta'),
                 }],
                 "temperature": 0.1,
@@ -140,38 +140,48 @@ OTHERS: {other_agents}
         can_rag = self.can_rag
         # 1. Messaging
         def send_message(recipient: str, message: str) -> str:
+            """Send a private message to another agent."""
             if recipient not in self.env.agents: return "Error: Recipient not found."
+            self.logger.print_communication(self.agent_id, message, target=recipient)
             self.send(f"[PRIVATE] {message}", self.env.agents[recipient], request_reply=False, silent=True)
+
             return "Message sent."
         def broadcast(message: str) -> str:
+            """Broadcast a message to all other agents."""
+            self.logger.print_communication(self.agent_id, message, target="PUBLIC")
             for name, agent in self.env.agents.items():
                 if name != self.agent_id:
                     self.send(f"[PUBLIC] {self.agent_id}: {message}", agent, request_reply=False, silent=True)
             return "Broadcast sent."
         # 2. Trade
         def make_trade_offer(target: str, give_res: str, give_qty: int, take_res: str, take_qty: int) -> str:
+            """Propose a trade to target: give_qty of give_res for take_qty of take_res."""
             res = self.env.create_trade(self.agent_id, target, give_res, give_qty, take_res, take_qty)
-            ConsoleLogger.print_action(self.agent_id, "make_trade", target, res)
+            self.logger.print_action(self.agent_id, "make_trade", target, res)
             return res
         def accept_trade(trade_id: str) -> str:
+            """Accept a pending trade offer by its ID."""
+            print(f"{self.agent_id} is accepting trade {trade_id}")
             res = self.env.resolve_trade(self.agent_id, trade_id, True)
-            ConsoleLogger.print_action(self.agent_id, "accept_trade", trade_id, res)
+            self.logger.print_action(self.agent_id, "accept_trade", trade_id, res)
             return res
         def reject_trade(trade_id: str) -> str:
+            """Reject a pending trade offer by its ID."""
+            print(f"{self.agent_id} is rejecting trade {trade_id}")
             res = self.env.resolve_trade(self.agent_id, trade_id, False)
-            ConsoleLogger.print_action(self.agent_id, "reject_trade", trade_id, res)
+            self.logger.print_action(self.agent_id, "reject_trade", trade_id, res)
             return res
         def think(thought: str) -> str:
-            ConsoleLogger.print_think(self.agent_id, thought)
+            self.logger.print_think(self.agent_id, thought)
             return "Thought logged."
         def save_knowledge(knowledge: str) -> str:
-            """Salva una knowledge string nella memoria RAG dell'agente."""
+            """Save a piece of knowledge to your RAG memory."""
             if not can_rag:
                 return "RAG disabled for this agent."
             res = self.env.save_memory_rag(self.agent_id, knowledge)
             return res
         def query_knowledge(query: str, top_k: int = 3) -> str:
-            """Recupera i documenti più rilevanti dalla memoria RAG dell'agente."""
+            """Query your RAG memory for relevant knowledge."""
             if not can_rag:
                 return "RAG disabled for this agent."
             memory = self.env.agent_memories.get(self.agent_id)
@@ -191,7 +201,7 @@ OTHERS: {other_agents}
             return loop.run_until_complete(do_query())
         # Leader tools
         def assign_task(sub_agent: str, task: str) -> str:
-            """(Leader only) Assegna un task a un sub-agente."""
+            """(Leader only) Assign a task to a sub-agent."""
             if not self.is_leader:
                 return "Not a leader agent."
             if sub_agent not in self.env.agents:
@@ -210,8 +220,9 @@ OTHERS: {other_agents}
         if self.is_leader:
             available_tools.append(assign_task)
         for f in available_tools:
-            self.register_for_llm(name=f.__name__, description=f.__doc__ or "Action")(f)
-            self.register_for_execution(name=f.__name__)(f)
+            print(f"Registering tool: {f.__name__} for {f.__doc__}")
+            self.register_for_llm(name=f"op_{f.__name__}", description=f"{f.__doc__ or 'Action'}")(f)
+            self.register_for_execution(name=f"op_{f.__name__}")(f)
 
     def _register_custom_ops(self, config, global_rules):
         all_ops = {**global_rules.get('operations', {}), **config.get('operations', {})}
@@ -220,7 +231,7 @@ OTHERS: {other_agents}
                 def op_func(target: str = None, inputMultiplier: float = 1) -> str:
                     print(f"{self.agent_id} is executing operation '{name}' with target '{target}'")
                     res = self.env.execute_operation(self.agent_id, name, target, inputMultiplier)
-                    ConsoleLogger.print_action(self.agent_id, f"op_{name}", target, res)
+                    self.logger.print_action(self.agent_id, f"op_{name}", target, res)
                     return res
                 return op_func
             
@@ -234,7 +245,7 @@ OTHERS: {other_agents}
 # 3. ENVIRONMENT
 # ==========================================
 class SimulationEnvironment:
-    def __init__(self, config, log_verbose=True, rag_limit=200):
+    def __init__(self, config, log_verbose=True, rag_limit=200, logger=None):
         import threading
         self.config = config
         self.global_rules = config.get('global_rules', {})
@@ -242,7 +253,10 @@ class SimulationEnvironment:
         self.agents = {}
         self.pending_trades = {}
         self.trade_counter = 1
-        self.log = ConsoleLogger() if log_verbose else None
+        if logger is not None:
+            self.log = logger
+        else:
+            self.log = ConsoleLogger() if log_verbose else None
         # RAG memory per agent (persistente tra i reset)
         self.agent_memories = {}
         self.rag_limit = rag_limit
@@ -298,7 +312,7 @@ class SimulationEnvironment:
 
     def save_memory_rag(self, agent_id, knowledge):
         """
-        Salva una knowledge string nella memoria RAG dell'agente, con pruning FIFO se supera il limite.
+        Save a piece of knowledge to the agent's RAG memory
         """
         with self._lock:
             memory = self.agent_memories.get(agent_id)
@@ -329,6 +343,9 @@ class SimulationEnvironment:
             return loop.run_until_complete(add_knowledge())
 
     def create_trade(self, sender, target, g_res, g_qty, t_res, t_qty):
+        """
+        Propose a trade to target
+        """
         with self._lock:
             if target not in self.portfolios: return "FAILED: Target not found"
             if self.portfolios[sender].get(g_res, 0) < g_qty: return f"FAILED: You don't have {g_qty} {g_res}"
@@ -343,6 +360,9 @@ class SimulationEnvironment:
             return f"SUCCESS: {tid} created"
 
     def resolve_trade(self, responder, tid, accept):
+        """
+        Reply to a trade offer (accept/reject)
+        """
         with self._lock:
             trade = self.pending_trades.get(tid)
             if not trade or trade['to'] != responder: return "FAILED: Trade not found or not for you"
@@ -357,6 +377,8 @@ class SimulationEnvironment:
             if self.portfolios[responder].get(t_res, 0) < t_qty: return "FAILED: You don't have resources"
             agentAConstraints = self.agents[sender].constraints
             agentBConstraints = self.agents[responder].constraints
+            if agentAConstraints is None: agentAConstraints = {}
+            if agentBConstraints is None: agentBConstraints = {}
             if agentAConstraints.get(g_res, {}).get('min', float('-inf')) > self.portfolios[sender].get(g_res, 0) - g_qty: return "FAILED: Sender would violate constraints"
             if agentAConstraints.get(g_res, {}).get('max', float('inf')) < self.portfolios[sender].get(g_res, 0) - g_qty: return "FAILED: Sender would violate constraints"
             if agentAConstraints.get(t_res, {}).get('min', float('-inf')) > self.portfolios[sender].get(t_res, 0) + t_qty: return "FAILED: Sender would violate constraints"
@@ -379,7 +401,8 @@ class SimulationEnvironment:
 
     def execute_operation(self, actor_id, op_name, target_id=None, multiplier=1):
         with self._lock:
-            op = self.global_rules['operations'].get(op_name)
+            ops = {**self.global_rules.get('operations', {}), **self.agents[actor_id].config.get('operations', {})}
+            op = ops.get(op_name)
             if not op:
                 return f"FAILED: Operation '{op_name}' not found."
             port = self.portfolios[actor_id]
@@ -422,9 +445,90 @@ class SimulationEnvironment:
             return "SUCCESS"
 
 # ==========================================
-# 4. ENGINE
+from typing import Optional
+
+# 4. CHATBOT (Natural Language Query)
+# ==========================================
+
+# Nuova versione: chatbot come agent conversazionale con tool
+import autogen
+class DoxaChatbot(autogen.ConversableAgent):
+    """
+    Chatbot esterno che risponde a domande in linguaggio naturale sulla simulazione.
+    Ha accesso allo YAML iniziale e a tool per estrarre dati (come export_data).
+    """
+    def __init__(self, engine, model: Optional[str] = None, provider: Optional[str] = None):
+        self.engine = engine
+        self.model = model or "llama3.1:8b"
+        self.provider = provider or "ollama"
+        if self.provider == "ollama":
+            llm_config = {
+                "config_list": [{
+                    "model": self.model,
+                    "base_url": "http://localhost:11434/v1",
+                    "api_type": "openai",
+                    "api_key": "ollama",
+                    "price": [0,0]
+                }],
+                "temperature": 0.2,
+            }
+        else:
+            raise ValueError(f"Provider {self.provider} not supported yet for chatbot.")
+        super().__init__(
+            name="DoxaChatbot",
+            llm_config=llm_config,
+            human_input_mode="NEVER",
+        )
+        self._register_tools()
+
+    def _register_tools(self):
+        # Tool: export_data
+        def export_data_tool(query: dict = None, format: str = "json") -> str:
+            """Estrae dati dalla simulazione secondo la query (come l'API export_data)."""
+            return self.engine.export_data(query, format)
+        # Tool: get_yaml
+        def get_yaml_tool() -> str:
+            """Restituisce lo YAML iniziale della simulazione."""
+            import yaml
+            return yaml.dump(self.engine.raw_config)
+        # Tool: get_state
+        def get_state_tool() -> str:
+            """Restituisce lo stato attuale (portafogli, trades, agenti)."""
+            return self.engine.export_data({"agents": True, "portfolios": True, "trades": True, "resources": True}, format="json")
+        self.register_for_llm(name="export_data", description=export_data_tool.__doc__)(export_data_tool)
+        self.register_for_execution(name="export_data")(export_data_tool)
+        self.register_for_llm(name="get_yaml", description=get_yaml_tool.__doc__)(get_yaml_tool)
+        self.register_for_execution(name="get_yaml")(get_yaml_tool)
+        self.register_for_llm(name="get_state", description=get_state_tool.__doc__)(get_state_tool)
+        self.register_for_execution(name="get_state")(get_state_tool)
+
+    def answer(self, query: str) -> str:
+        """
+        Answers a natural language question about the simulation using the available tools. Always in English.
+        """
+        prompt = (
+            "You are an assistant that answers questions about the following multi-agent simulation. "
+            "You have access to tools to extract data and to the initial YAML. "
+            "If the question is hypothetical, explain what would happen according to the rules and current state. "
+            "If it is factual, answer only based on the provided data. "
+            "If you cannot answer with certainty, explain what is missing. "
+            "Use the tools if needed. "
+            "Always answer in clear, detailed English."
+        )
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": query}
+        ]
+        reply = self.generate_reply(messages=messages)
+        if isinstance(reply, dict) and "content" in reply:
+            return reply["content"]
+        return str(reply)
+
+
+# 5. ENGINE
 # ==========================================
 class DoxaEngineV26:
+
     def godmode(self, action: str, params: dict) -> str:
         """
         API Godmode: permette interventi esterni sulla simulazione.
@@ -537,7 +641,7 @@ class DoxaEngineV26:
             portfolios = self.env.portfolios
             filtered = {}
             for aid, port in portfolios.items():
-                filtered[aid] = {r: v for r, v in port.items() if r in res_names}
+                filtered[aid] = {r: v for r, v in port.items()}
             result["resources"] = filtered
         # HISTORY (non implementato, placeholder)
         if query.get("history"):
@@ -592,19 +696,22 @@ class DoxaEngineV26:
         thread.start()
         time.sleep(5)
 
-    def __init__(self, yaml_str, log_verbose=True, rag_limit=200):
+    def __init__(self, yaml_str, log_verbose=True, rag_limit=200, logger = None):
         self.raw_config = yaml.safe_load(yaml_str)
-        self.env = SimulationEnvironment(self.raw_config, log_verbose=log_verbose, rag_limit=rag_limit)
+        self.env = SimulationEnvironment(self.raw_config, log_verbose=log_verbose, rag_limit=rag_limit, logger=logger)
         self.log = self.env.log
         # Se usa Ollama, avvia il server (solo per provider Ollama, si assume che i modelli siano già importati)
         uses_ollama = any(agent.get('provider', 'ollama').lower() == 'ollama' for agent in self.raw_config.get('actors', []))
         if uses_ollama:
             self.startOllama()
+        # Chatbot esterno per domande in linguaggio naturale
+        self.chatbot = DoxaChatbot(self)
 
     def run(self):
         epochs = self.raw_config['global_rules'].get('epochs', 1)
         steps = self.raw_config['global_rules'].get('steps', 5)
         mode = self.raw_config['global_rules'].get('execution_mode', 'sequential')
+        maintenance = self.raw_config.get('maintenance', {})
 
         for e in range(epochs):
             self.log.print_epoch(e + 1)
@@ -614,12 +721,28 @@ class DoxaEngineV26:
                 self.log.print_step(s + 1)
                 ids = list(self.env.agents.keys())
                 random.shuffle(ids)
+                # Applica manutenzione (es. decay risorse)
+                for a_id in ids:
+                    for res, amt in maintenance.items():
+                        self.env.portfolios[a_id][res] = self.env.portfolios[a_id].get(res, 0) - amt
+                    # Controlla condizioni di kill (es. risorsa a 0)
+                    kill_conds = self.raw_config.get('kill_conditions', []) + self.env.agents[a_id].config.get('kill_conditions', [])
+                    for cond in kill_conds:
+                        res = cond['resource']
+                        threshold = cond['threshold']
+                        if self.env.portfolios[a_id].get(res, 0) <= threshold:
+                            self.log.print_kill(a_id, f"Condition met: {res} <= {threshold}")
+                            del self.env.agents[a_id]
+                            del self.env.portfolios[a_id]
+                            break
                 
                 if mode == 'sequential':
                     for a_id in ids: self._step_agent(a_id)
                 else:
                     with ThreadPoolExecutor() as executor:
                         executor.map(self._step_agent, ids)
+            for a_id in self.env.agents:
+                self.check_victory_conditions(a_id)
 
     def _step_agent(self, a_id):
         if self.log:
@@ -686,38 +809,46 @@ class DoxaEngineV26:
 # ==========================================
 config_yaml = """
 global_rules:
-  epochs: 5
-  steps: 1
+  epochs: 1
+  steps: 10
   execution_mode: 'sequential'
-  operations:
-    cooperate:
-      input: {token: 1}
-      output: {score: 1}
-      target_impact: {score: 3}
-    defect:
-      input: {token: 1}
-      output: {score: 3}
-      target_impact: {score: -2}
-constraints:
-  score: {min: -10}
-  token: {min: 0}
+
+maintenance: {corn: 1}
+  
+kill_conditions:
+  - {resource: 'corn', threshold: 0} 
     
 victory_conditions:
-  - {resource: 'score', threshold: 10}  # threshold può essere 'min', 'max', 'count'
+  - {resource: 'gold', threshold: 100}  # threshold può essere 'min', 'max', 'count'
 
 actors:
   - id: 'player'
     replicas: 2
-    model_name: 'llama3.1:8b'
-    can_trade: false
-    can_think: false
-    can_chat: false
-    persona: "Maximize score and overcome. You are selfish."
-    initial_portfolio: {score: 0, token: 2}
-    victory_conditions:
-        - {resource: 'score', threshold: 10, scope: 'individual'}
+    provider: 'google'
+    model_name: 'gemini-2.5-pro' #'qwen2.5:1.5b' #'llama3.1:8b'
+    persona: "Trade and collaborate"
+    initial_portfolio: {corn: 20, gold: 10}
     constraints:
-        score: {min: -10}
+      gold: {min: 0}
+      corn: {min: 0}
+    operations: 
+        farm:
+            input: {gold: 2}
+            output: {corn: 5}
+  - id: 'miners'
+    replicas: 2
+    provider: 'google'
+    model_name: 'gemini-2.5-pro' #'qwen2.5:1.5b' #'llama3.1:8b'
+    persona: "Trade and collaborate"
+    initial_portfolio: {gold: 20, corn: 10}
+    constraints:
+      gold: {min: 0}
+      corn: {min: 0}
+    operations: 
+        mine:
+            input: {corn: 2}
+            output: {gold: 5}
+    
 """
 
 if __name__ == "__main__":
