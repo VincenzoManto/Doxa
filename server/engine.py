@@ -2,6 +2,13 @@ import yaml
 import autogen
 import json
 import random
+import csv
+import io
+import re
+import threading
+import time
+import uuid
+import zipfile
 from copy import deepcopy
 from typing import Annotated, List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
@@ -36,6 +43,9 @@ class ConsoleLogger:
     def print_communication(self, sender, message, target = "PUBLIC"):
         color = "\033[34m" if target == "PUBLIC" else "\033[35m"
         print(f"{color}[{sender} -> {target}]: {message}\033[0m")
+    def print_trade(self, agent_id, target, give_res, give_qty, take_res, take_qty, result):
+        color = "\033[32m" if "SUCCESS" in str(result) else "\033[31m"
+        print(f"\033[36m[{agent_id} → {target}] TRADE: {give_qty}×{give_res} ↔ {take_qty}×{take_res} → {color}{result}\033[0m")
 # ==========================================
 # 2. DOXA AGENT
 # ==========================================
@@ -157,19 +167,29 @@ OTHERS: {other_agents}
         def make_trade_offer(target: str, give_res: str, give_qty: int, take_res: str, take_qty: int) -> str:
             """Propose a trade to target: give_qty of give_res for take_qty of take_res."""
             res = self.env.create_trade(self.agent_id, target, give_res, give_qty, take_res, take_qty)
-            self.logger.print_action(self.agent_id, "make_trade", target, res)
+            self.logger.print_trade(self.agent_id, target, give_res, give_qty, take_res, take_qty, res)
             return res
         def accept_trade(trade_id: str) -> str:
             """Accept a pending trade offer by its ID."""
-            print(f"{self.agent_id} is accepting trade {trade_id}")
+            trade = self.env.pending_trades.get(trade_id)
             res = self.env.resolve_trade(self.agent_id, trade_id, True)
-            self.logger.print_action(self.agent_id, "accept_trade", trade_id, res)
+            if trade:
+                g_res, g_qty = list(trade['give'].items())[0]
+                t_res, t_qty = list(trade['take'].items())[0]
+                self.logger.print_trade(trade['from'], trade['to'], g_res, g_qty, t_res, t_qty, f"ACCEPTED: {res}")
+            else:
+                self.logger.print_action(self.agent_id, "accept_trade", trade_id, res)
             return res
         def reject_trade(trade_id: str) -> str:
             """Reject a pending trade offer by its ID."""
-            print(f"{self.agent_id} is rejecting trade {trade_id}")
+            trade = self.env.pending_trades.get(trade_id)
             res = self.env.resolve_trade(self.agent_id, trade_id, False)
-            self.logger.print_action(self.agent_id, "reject_trade", trade_id, res)
+            if trade:
+                g_res, g_qty = list(trade['give'].items())[0]
+                t_res, t_qty = list(trade['take'].items())[0]
+                self.logger.print_trade(trade['from'], trade['to'], g_res, g_qty, t_res, t_qty, f"REJECTED: {res}")
+            else:
+                self.logger.print_action(self.agent_id, "reject_trade", trade_id, res)
             return res
         def think(thought: str) -> str:
             self.logger.print_think(self.agent_id, thought)
@@ -341,6 +361,107 @@ class SimulationEnvironment:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
             return loop.run_until_complete(add_knowledge())
+
+    def get_agent_memory_graph(self, agent_id: str, limit: int = 80):
+        import asyncio
+
+        memory = self.env.agent_memories.get(agent_id)
+        if not memory:
+            return {
+                "agent": agent_id,
+                "docs": [],
+                "graph": {
+                    "nodes": [{"id": agent_id, "name": agent_id, "category": "agent", "symbolSize": 44, "value": 1}],
+                    "edges": [],
+                },
+                "stats": {"documents": 0, "links": 0},
+            }
+
+        async def load_docs():
+            listed = await memory.list()
+            return listed[-limit:]
+
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        documents = loop.run_until_complete(load_docs())
+
+        def normalize_doc(doc, index: int):
+            content = getattr(doc, "content", None)
+            if content is None and isinstance(doc, dict):
+                content = doc.get("content")
+            content = str(content or "")
+            doc_id = getattr(doc, "id", None)
+            if doc_id is None and isinstance(doc, dict):
+                doc_id = doc.get("id")
+            doc_id = str(doc_id or f"mem-{index + 1}")
+            tokens = [
+                token
+                for token in re.findall(r"[a-zA-Z0-9_]{4,}", content.lower())
+                if token not in {"that", "this", "with", "from", "have", "will", "your", "agent", "trade", "resource", "about"}
+            ]
+            unique_tokens = []
+            for token in tokens:
+                if token not in unique_tokens:
+                    unique_tokens.append(token)
+                if len(unique_tokens) >= 10:
+                    break
+            return {
+                "id": doc_id,
+                "content": content,
+                "preview": content[:240],
+                "tokens": unique_tokens,
+            }
+
+        docs = [normalize_doc(doc, index) for index, doc in enumerate(documents)]
+        nodes = [{"id": agent_id, "name": agent_id, "category": "agent", "symbolSize": 44, "value": max(1, len(docs))}]
+        edges = []
+
+        for doc in docs:
+            weight = max(1, len(doc["tokens"]))
+            nodes.append({
+                "id": doc["id"],
+                "name": doc["id"],
+                "category": "memory",
+                "symbolSize": 20 + min(weight, 10),
+                "value": weight,
+                "preview": doc["preview"],
+                "tokens": doc["tokens"],
+            })
+            edges.append({"source": agent_id, "target": doc["id"], "value": weight})
+
+        similarity_edges = []
+        for index, left in enumerate(docs):
+            left_tokens = set(left["tokens"])
+            if not left_tokens:
+                continue
+            for right in docs[index + 1:]:
+                overlap = sorted(left_tokens.intersection(right["tokens"]))
+                if len(overlap) >= 2:
+                    similarity_edges.append({
+                        "source": left["id"],
+                        "target": right["id"],
+                        "value": len(overlap),
+                        "label": ", ".join(overlap[:4]),
+                    })
+
+        similarity_edges.sort(key=lambda edge: edge["value"], reverse=True)
+        edges.extend(similarity_edges[:120])
+        return {
+            "agent": agent_id,
+            "docs": docs,
+            "graph": {
+                "nodes": nodes,
+                "edges": edges,
+            },
+            "stats": {
+                "documents": len(docs),
+                "links": len(edges),
+            },
+        }
 
     def create_trade(self, sender, target, g_res, g_qty, t_res, t_qty):
         """
@@ -529,278 +650,658 @@ class DoxaChatbot(autogen.ConversableAgent):
 # ==========================================
 class DoxaEngineV26:
 
+    def __init__(self, yaml_str, log_verbose=True, rag_limit=200, logger=None):
+        self.log_verbose = log_verbose
+        self.rag_limit = rag_limit
+        self.logger = logger
+        self._state_lock = threading.RLock()
+        self._pause_event = threading.Event()
+        self._pause_event.set()
+        self._stop_event = threading.Event()
+        self._run_thread = None
+        self.state = "idle"
+        self.last_error = None
+        self.current_epoch = 0
+        self.current_step = 0
+        self.run_sequence = 0
+        self.run_id = None
+        self.event_history = []
+        self.resource_history = []
+        self.config_source = {"kind": "embedded", "value": "config_yaml"}
+        self.config_text = ""
+        self._set_config(yaml_str, source_kind="embedded", source_value="config_yaml")
+        self.chatbot = DoxaChatbot(self)
+
+    def _validate_config_dict(self, config: dict):
+        if not isinstance(config, dict):
+            raise ValueError("YAML root must be a mapping.")
+        if "actors" not in config or not isinstance(config["actors"], list) or not config["actors"]:
+            raise ValueError("Config must define a non-empty 'actors' list.")
+        if "global_rules" not in config or not isinstance(config["global_rules"], dict):
+            raise ValueError("Config must define 'global_rules' as a mapping.")
+        for actor in config["actors"]:
+            if not isinstance(actor, dict):
+                raise ValueError("Each actor must be a mapping.")
+            if not actor.get("id"):
+                raise ValueError("Each actor must define an 'id'.")
+            if "initial_portfolio" not in actor or not isinstance(actor["initial_portfolio"], dict):
+                raise ValueError(f"Actor '{actor.get('id', '<unknown>')}' must define 'initial_portfolio'.")
+
+    def _set_config(self, yaml_text: str, source_kind: str = "text", source_value: str = "runtime"):
+        parsed = yaml.safe_load(yaml_text) or {}
+        self._validate_config_dict(parsed)
+        self.raw_config = parsed
+        self.config_text = yaml_text.strip() + "\n"
+        self.config_source = {"kind": source_kind, "value": source_value}
+        self.env = SimulationEnvironment(self.raw_config, log_verbose=self.log_verbose, rag_limit=self.rag_limit, logger=self.logger)
+        self.log = self.env.log
+        uses_ollama = any(actor.get("provider", "ollama").lower() == "ollama" for actor in self.raw_config.get("actors", []))
+        if uses_ollama:
+            self.startOllama()
+
+    def validate_yaml(self, yaml_text: str):
+        parsed = yaml.safe_load(yaml_text) or {}
+        self._validate_config_dict(parsed)
+        return {"valid": True, "config": parsed}
+
+    def get_config(self):
+        return {
+            "yaml_text": self.config_text,
+            "source": self.config_source,
+            "config": self.raw_config,
+        }
+
+    def update_config_text(self, yaml_text: str):
+        with self._state_lock:
+            if self.state in {"running", "paused"}:
+                raise RuntimeError("Stop or reset the simulation before changing the config.")
+            self._set_config(yaml_text, source_kind="text", source_value="api")
+            self._reset_runtime_storage()
+            self.env.reset(self.raw_config["actors"])
+            self.record_event({"type": "config_updated", "text": "Runtime YAML updated"})
+            self.record_snapshot("config_updated")
+            return self.get_config()
+
+    def load_config_path(self, path: str):
+        with open(path, "r", encoding="utf-8") as file_handle:
+            yaml_text = file_handle.read()
+        with self._state_lock:
+            if self.state in {"running", "paused"}:
+                raise RuntimeError("Stop or reset the simulation before changing the config.")
+            self._set_config(yaml_text, source_kind="path", source_value=path)
+            self._reset_runtime_storage()
+            self.env.reset(self.raw_config["actors"])
+            self.record_event({"type": "config_loaded", "text": path})
+            self.record_snapshot("config_loaded")
+            return self.get_config()
+
+    def _reset_runtime_storage(self):
+        self.event_history = []
+        self.resource_history = []
+        self.current_epoch = 0
+        self.current_step = 0
+        self.last_error = None
+
+    def _next_run_id(self, prefix: str = "run"):
+        self.run_sequence += 1
+        return f"{prefix}-{self.run_sequence}-{uuid.uuid4().hex[:8]}"
+
+    def _iter_known_agents(self):
+        for actor in self.raw_config.get("actors", []):
+            replicas = actor.get("replicas", 1)
+            for index in range(replicas):
+                agent_id = f"{actor['id']}_{index + 1}" if replicas > 1 else actor["id"]
+                yield agent_id, actor
+
+    def _find_agent_config(self, agent_id: str):
+        for known_agent_id, actor in self._iter_known_agents():
+            if known_agent_id == agent_id:
+                return actor
+        return None
+
+    def list_agents(self):
+        alive_agents = set(self.env.agents.keys())
+        return [
+            {
+                "id": agent_id,
+                "alive": agent_id in alive_agents,
+            }
+            for agent_id, _actor in self._iter_known_agents()
+        ]
+
+    def get_agent_details(self, agent_id: str):
+        agent = self.env.agents.get(agent_id)
+        if agent:
+            return {
+                "agent": agent_id,
+                "portfolio": dict(self.env.portfolios.get(agent_id, {})),
+                "constraints": deepcopy(getattr(agent, "constraints", {})),
+                "config": deepcopy(getattr(agent, "config", {})),
+                "alive": True,
+                "death_reason": None,
+            }
+
+        actor = self._find_agent_config(agent_id)
+        if not actor:
+            return None
+
+        portfolio = deepcopy(actor.get("initial_portfolio", {}))
+        for snapshot in reversed(self.resource_history):
+            if agent_id in snapshot["agents"]:
+                portfolio = dict(snapshot["agents"][agent_id])
+                break
+
+        death_reason = None
+        for event in reversed(self.event_history):
+            if event.get("type") == "kill" and event.get("agent") == agent_id:
+                death_reason = event.get("reason")
+                break
+
+        constraints = {
+            **deepcopy(self.raw_config.get("global_rules", {}).get("constraints", {})),
+            **deepcopy(actor.get("constraints", {})),
+        }
+        return {
+            "agent": agent_id,
+            "portfolio": portfolio,
+            "constraints": constraints,
+            "config": deepcopy(actor),
+            "alive": False,
+            "death_reason": death_reason,
+        }
+
+    def get_status(self):
+        return {
+            "state": self.state,
+            "run_id": self.run_id,
+            "epoch": self.current_epoch,
+            "step": self.current_step,
+            "last_error": self.last_error,
+            "agent_count": len(self.env.agents),
+            "available_actions": {
+                "can_run": self.state in {"idle", "completed", "errored"},
+                "can_pause": self.state == "running",
+                "can_resume": self.state == "paused",
+                "can_reset": self.state in {"idle", "paused", "completed", "errored"},
+                "can_restart": self.state in {"idle", "running", "paused", "completed", "errored"},
+                "can_step": self.state in {"idle", "paused", "completed", "errored"},
+            },
+        }
+
+    def record_event(self, event: dict):
+        normalized = dict(event)
+        normalized.setdefault("timestamp", time.time())
+        normalized.setdefault("run_id", self.run_id)
+        normalized.setdefault("epoch", self.current_epoch or None)
+        normalized.setdefault("step", self.current_step or None)
+        normalized.setdefault("state", self.state)
+        self.event_history.append(normalized)
+        self.event_history = self.event_history[-50000:]
+        return normalized
+
+    def _compute_totals(self):
+        totals = {}
+        for portfolio in self.env.portfolios.values():
+            for resource_name, amount in portfolio.items():
+                totals[resource_name] = totals.get(resource_name, 0) + amount
+        return totals
+
+    def record_snapshot(self, reason: str, focus_agent: str = None):
+        snapshot = {
+            "timestamp": time.time(),
+            "run_id": self.run_id,
+            "epoch": self.current_epoch,
+            "step": self.current_step,
+            "state": self.state,
+            "reason": reason,
+            "focus_agent": focus_agent,
+            "totals": self._compute_totals(),
+            "agents": {agent_id: dict(portfolio) for agent_id, portfolio in self.env.portfolios.items()},
+        }
+        self.resource_history.append(snapshot)
+        self.resource_history = self.resource_history[-2000:]
+        return snapshot
+
+    def get_global_timeline(self):
+        return self.resource_history
+
+    def get_agent_timeline(self, agent_id: str):
+        timeline = []
+        for snapshot in self.resource_history:
+            if agent_id in snapshot["agents"]:
+                timeline.append({
+                    "timestamp": snapshot["timestamp"],
+                    "run_id": snapshot["run_id"],
+                    "epoch": snapshot["epoch"],
+                    "step": snapshot["step"],
+                    "state": snapshot["state"],
+                    "reason": snapshot["reason"],
+                    "resources": snapshot["agents"][agent_id],
+                })
+        return timeline
+
+    def get_agent_memory_graph(self, agent_id: str, limit: int = 80):
+        return self.env.get_agent_memory_graph(agent_id, limit)
+
+    def get_events(self, limit: int = 500):
+        return self.event_history[-limit:]
+
+    def get_events_page(self, limit: int = 500, offset: int = 0):
+        """Paginazione degli eventi: offset 0 = più recenti."""
+        total = len(self.event_history)
+        # offset 0 restituisce gli ultimi `limit` eventi
+        start = max(0, total - limit - offset)
+        end = max(0, total - offset)
+        return self.event_history[start:end], total
+
+    def make_ws_snapshot(self):
+        """Restituisce l'ultimo snapshot come messaggio WS arricchito con stato e agenti."""
+        if not self.resource_history:
+            return None
+        last = self.resource_history[-1]
+        return {
+            "type": "snapshot",
+            **last,
+            "agents_alive": self.list_agents(),
+            "status": self.get_status(),
+        }
+
+    def stop_current_run(self, wait: bool = True):
+        thread = None
+        with self._state_lock:
+            self._stop_event.set()
+            self._pause_event.set()
+            thread = self._run_thread
+        if wait and thread and thread.is_alive():
+            thread.join(timeout=5)
+        with self._state_lock:
+            self._run_thread = None
+
+    def start_run(self):
+        with self._state_lock:
+            if self.state == "running":
+                raise RuntimeError("Simulation is already running.")
+            if self._run_thread and self._run_thread.is_alive():
+                raise RuntimeError("Another run is still shutting down.")
+            self._stop_event.clear()
+            self._pause_event.set()
+            self.state = "running"
+            self.run_id = self._next_run_id("run")
+            self._run_thread = threading.Thread(target=self.run, daemon=True)
+            self._run_thread.start()
+            return self.get_status()
+
+    def pause_run(self):
+        with self._state_lock:
+            if self.state != "running":
+                raise RuntimeError("Simulation is not running.")
+            self._pause_event.clear()
+            self.state = "paused"
+            return self.get_status()
+
+    def resume_run(self):
+        with self._state_lock:
+            if self.state != "paused":
+                raise RuntimeError("Simulation is not paused.")
+            self._pause_event.set()
+            self.state = "running"
+            return self.get_status()
+
+    def restart_run(self):
+        self.stop_current_run(wait=True)
+        self.reset_simulation()
+        return self.start_run()
+
+    def reset_simulation(self):
+        self.stop_current_run(wait=True)
+        with self._state_lock:
+            self.state = "idle"
+            self.run_id = self._next_run_id("reset")
+            self._reset_runtime_storage()
+            self.env.reset(self.raw_config["actors"])
+            self.record_event({"type": "reset", "text": "Simulation reset"})
+            self.record_snapshot("reset")
+            return self.get_status()
+
+    def step_once(self, agent_id: str = None):
+        with self._state_lock:
+            if self.state == "running":
+                raise RuntimeError("Pause the simulation before stepping manually.")
+            if self.state in {"completed", "errored", "idle"} and not self.env.agents:
+                self.env.reset(self.raw_config["actors"])
+            if not self.run_id:
+                self.run_id = self._next_run_id("manual")
+            previous_state = self.state
+            self.state = "paused" if previous_state == "paused" else "idle"
+            if self.current_epoch == 0:
+                self.current_epoch = 1
+            self.current_step += 1
+            active_agents = list(self.env.agents.keys())
+            if not active_agents:
+                return self.get_status()
+            selected_agent = agent_id or active_agents[0]
+            if selected_agent not in self.env.agents:
+                raise RuntimeError(f"Agent '{selected_agent}' not found.")
+        if self.log:
+            self.log.print_step(self.current_step)
+        self._step_agent(selected_agent)
+        self.record_snapshot("manual_step", selected_agent)
+        return self.get_status()
+
+    def _wait_if_paused(self):
+        while not self._pause_event.is_set():
+            if self._stop_event.is_set():
+                return False
+            time.sleep(0.05)
+        return not self._stop_event.is_set()
+
+    def _apply_maintenance(self, ids):
+        maintenance = self.raw_config.get("maintenance", {})
+        for agent_id in list(ids):
+            if agent_id not in self.env.agents:
+                continue
+            for resource_name, amount in maintenance.items():
+                self.env.portfolios[agent_id][resource_name] = self.env.portfolios[agent_id].get(resource_name, 0) - amount
+            kill_conds = self.raw_config.get("kill_conditions", []) + self.env.agents[agent_id].config.get("kill_conditions", [])
+            for cond in kill_conds:
+                resource_name = cond["resource"]
+                threshold = cond["threshold"]
+                if self.env.portfolios[agent_id].get(resource_name, 0) <= threshold:
+                    if self.log:
+                        self.log.print_kill(agent_id, f"Condition met: {resource_name} <= {threshold}")
+                    if agent_id in self.env.agents:
+                        del self.env.agents[agent_id]
+                    if agent_id in self.env.portfolios:
+                        del self.env.portfolios[agent_id]
+                    break
+
     def godmode(self, action: str, params: dict) -> str:
-        """
-        API Godmode: permette interventi esterni sulla simulazione.
-        action: tipo di intervento, tra:
-            - 'inject_resource': aggiungi risorse a un agente
-                params: {'agent': 'id', 'resource': 'nome', 'amount': valore}
-            - 'set_constraint': modifica vincoli di un agente
-                params: {'agent': 'id', 'resource': 'nome', 'min': x, 'max': y}
-            - 'set_portfolio': imposta il portafoglio di un agente
-                params: {'agent': 'id', 'portfolio': {...}}
-            - 'send_message': invia un messaggio come umano a un agente
-                params: {'to': 'id', 'message': '...'}
-            - 'impersonate_action': esegui un'azione come un agente
-                params: {'agent': 'id', 'function': 'nome', 'args': {...}}
-        """
-        # 1. Inject resource
         if action == 'inject_resource':
             agent = params['agent']
-            res = params['resource']
+            resource_name = params['resource']
             amount = params['amount']
             if agent not in self.env.portfolios:
                 return f"FAILED: Agent {agent} not found."
-            self.env.portfolios[agent][res] = self.env.portfolios[agent].get(res, 0) + amount
-            return f"SUCCESS: Injected {amount} {res} to {agent}."
-        # 2. Set constraint
+            self.env.portfolios[agent][resource_name] = self.env.portfolios[agent].get(resource_name, 0) + amount
         elif action == 'set_constraint':
             agent = params['agent']
-            res = params['resource']
+            resource_name = params['resource']
             minv = params.get('min')
             maxv = params.get('max')
             if agent not in self.env.agents:
                 return f"FAILED: Agent {agent} not found."
-            if res not in self.env.agents[agent].constraints:
-                self.env.agents[agent].constraints[res] = {}
+            if resource_name not in self.env.agents[agent].constraints:
+                self.env.agents[agent].constraints[resource_name] = {}
             if minv is not None:
-                self.env.agents[agent].constraints[res]['min'] = minv
+                self.env.agents[agent].constraints[resource_name]['min'] = minv
             if maxv is not None:
-                self.env.agents[agent].constraints[res]['max'] = maxv
-            return f"SUCCESS: Constraint updated for {agent} {res}."
-        # 3. Set portfolio
+                self.env.agents[agent].constraints[resource_name]['max'] = maxv
         elif action == 'set_portfolio':
             agent = params['agent']
             portfolio = params['portfolio']
             if agent not in self.env.portfolios:
                 return f"FAILED: Agent {agent} not found."
             self.env.portfolios[agent] = dict(portfolio)
-            return f"SUCCESS: Portfolio set for {agent}."
-        # 4. Send message as human
         elif action == 'send_message':
-            to = params['to']
-            msg = params['message']
-            if to not in self.env.agents:
-                return f"FAILED: Agent {to} not found."
-            self.env.agents[to].receive(message=msg, sender="HUMAN", request_reply=False)
-            return f"SUCCESS: Message sent to {to}."
-        # 5. Impersonate action
+            target = params['to']
+            message = params['message']
+            if target not in self.env.agents:
+                return f"FAILED: Agent {target} not found."
+            self.env.agents[target].receive(message=message, sender="HUMAN", request_reply=False)
         elif action == 'impersonate_action':
             agent = params['agent']
             func = params['function']
             args = params.get('args', {})
             if agent not in self.env.agents:
                 return f"FAILED: Agent {agent} not found."
-            ag = self.env.agents[agent]
-            # Cerca funzione tra quelle registrate
-            f = getattr(ag, func, None)
-            if not f:
-                # Prova tra i tool registrati
-                f = ag._function_map.get(func)
-            if not f:
+            target_agent = self.env.agents[agent]
+            function_ref = getattr(target_agent, func, None) or target_agent._function_map.get(func)
+            if not function_ref:
                 return f"FAILED: Function {func} not found for agent {agent}."
             try:
-                res = f(**args) if args else f()
-            except Exception as e:
-                return f"FAILED: Exception: {e}"
-            return f"SUCCESS: {func} executed for {agent}: {res}"
+                function_ref(**args) if args else function_ref()
+            except Exception as exc:
+                return f"FAILED: Exception: {exc}"
         else:
             return "FAILED: Unknown godmode action."
+        self.record_snapshot(f"godmode:{action}", params.get("agent"))
+        return f"SUCCESS: {action} executed."
+
     def export_data(self, query: dict, format: str = "json"):
-        """
-        Esporta dati della simulazione secondo la query specificata.
-        query: dict con chiavi tra ["agents", "portfolios", "trades", "history", "resources"] e filtri opzionali.
-        format: "json" | "csv" | "dict"
-        Esempi di query:
-            {"agents": True}  # tutti gli agenti
-            {"portfolios": ["agent1", "agent2"]}  # solo certi agenti
-            {"trades": True}  # tutti i trades
-            {"resources": ["score", "token"]}  # solo certe risorse
-        """
-        import csv
-        import io
         result = {}
         if query is None or not isinstance(query, dict) or len(query) == 0:
-            query = {"agents": True, "portfolios": True, "trades": True, "history": True}
-        # AGENTS
+            query = {"agents": True, "portfolios": True, "trades": True, "history": True, "resources": True}
         if query.get("agents"):
             result["agents"] = list(self.env.agents.keys())
-        # PORTFOLIOS
         if "portfolios" in query:
             if query["portfolios"] is True:
-                result["portfolios"] = {k: dict(v) for k, v in self.env.portfolios.items()}
+                result["portfolios"] = {agent_id: dict(values) for agent_id, values in self.env.portfolios.items()}
             elif isinstance(query["portfolios"], list):
-                result["portfolios"] = {k: dict(self.env.portfolios[k]) for k in query["portfolios"] if k in self.env.portfolios}
-        # TRADES
+                result["portfolios"] = {agent_id: dict(self.env.portfolios[agent_id]) for agent_id in query["portfolios"] if agent_id in self.env.portfolios}
         if query.get("trades"):
             result["trades"] = dict(self.env.pending_trades)
-        # RESOURCES
         if "resources" in query:
-            # Estrae risorse da portafogli
-            res_names = query["resources"]
-            portfolios = self.env.portfolios
-            filtered = {}
-            for aid, port in portfolios.items():
-                filtered[aid] = {r: v for r, v in port.items()}
-            result["resources"] = filtered
-        # HISTORY (non implementato, placeholder)
+            result["resources"] = {
+                "totals": self._compute_totals(),
+                "agents": {agent_id: dict(values) for agent_id, values in self.env.portfolios.items()},
+            }
         if query.get("history"):
-            result["history"] = "Not implemented."
-        # Output
+            result["history"] = {
+                "events": self.event_history,
+                "timeline": self.resource_history,
+            }
         if format == "dict":
             return result
-        elif format == "json":
-            import json
-            return json.dumps(result, indent=2)
-        elif format == "csv":
-            # Esporta solo portfolios o resources (tabellare)
+        if format == "json":
+            return result
+        if format == "csv":
             output = io.StringIO()
+            writer = csv.writer(output)
             if "resources" in result:
-                # Riga: agent, resource1, resource2, ...
-                agents = list(result["resources"].keys())
-                res_names = set()
-                for v in result["resources"].values():
-                    res_names.update(v.keys())
-                res_names = sorted(res_names)
-                writer = csv.writer(output)
-                writer.writerow(["agent"] + res_names)
-                for aid in agents:
-                    row = [aid] + [result["resources"][aid].get(r, 0) for r in res_names]
-                    writer.writerow(row)
+                resource_names = sorted(result["resources"]["totals"].keys())
+                writer.writerow(["agent"] + resource_names)
+                for agent_id, portfolio in result["resources"]["agents"].items():
+                    writer.writerow([agent_id] + [portfolio.get(resource_name, 0) for resource_name in resource_names])
             elif "portfolios" in result:
-                agents = list(result["portfolios"].keys())
-                res_names = set()
-                for v in result["portfolios"].values():
-                    res_names.update(v.keys())
-                res_names = sorted(res_names)
-                writer = csv.writer(output)
-                writer.writerow(["agent"] + res_names)
-                for aid in agents:
-                    row = [aid] + [result["portfolios"][aid].get(r, 0) for r in res_names]
-                    writer.writerow(row)
+                resource_names = sorted({resource_name for values in result["portfolios"].values() for resource_name in values.keys()})
+                writer.writerow(["agent"] + resource_names)
+                for agent_id, portfolio in result["portfolios"].items():
+                    writer.writerow([agent_id] + [portfolio.get(resource_name, 0) for resource_name in resource_names])
             else:
-                output.write("CSV export supported only for portfolios/resources.")
+                writer.writerow(["message"])
+                writer.writerow(["CSV export supported only for portfolios/resources."])
             return output.getvalue()
-        else:
-            return f"Format '{format}' not supported."
-        
+        raise ValueError(f"Format '{format}' not supported.")
+
+    def build_export_zip(self):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            manifest = {
+                "generated_at": time.time(),
+                "run_id": self.run_id,
+                "status": self.get_status(),
+                "config_source": self.config_source,
+            }
+            archive.writestr("manifest.json", json.dumps(manifest, indent=2))
+            archive.writestr("config.yaml", self.config_text)
+            archive.writestr("events/events.json", json.dumps(self.event_history, indent=2))
+            archive.writestr("events/timeline.json", json.dumps(self.resource_history, indent=2))
+            archive.writestr("events/events.csv", self._events_csv())
+            for agent_id in sorted(self.env.portfolios.keys()):
+                archive.writestr(f"resources/{agent_id}.csv", self._agent_timeline_csv(agent_id))
+        buffer.seek(0)
+        return buffer.getvalue()
+
+    def _events_csv(self):
+        output = io.StringIO()
+        fieldnames = ["timestamp", "run_id", "state", "epoch", "step", "type", "agent", "target", "action", "text", "result", "reason"]
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        for event in self.event_history:
+            writer.writerow({key: json.dumps(event.get(key)) if isinstance(event.get(key), (dict, list)) else event.get(key) for key in fieldnames})
+        return output.getvalue()
+
+    def _agent_timeline_csv(self, agent_id: str):
+        timeline = self.get_agent_timeline(agent_id)
+        resource_names = sorted({resource_name for point in timeline for resource_name in point["resources"].keys()})
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["timestamp", "run_id", "epoch", "step", "state", "reason"] + resource_names)
+        for point in timeline:
+            writer.writerow([
+                point["timestamp"],
+                point["run_id"],
+                point["epoch"],
+                point["step"],
+                point["state"],
+                point["reason"],
+            ] + [point["resources"].get(resource_name, 0) for resource_name in resource_names])
+        return output.getvalue()
+
     def startOllama(self):
-        import threading
         import subprocess
-        import time
 
         def run_ollama_serve():
             subprocess.Popen(["ollama", "serve"])
 
-        thread = threading.Thread(target=run_ollama_serve)
+        thread = threading.Thread(target=run_ollama_serve, daemon=True)
         thread.start()
         time.sleep(5)
 
-    def __init__(self, yaml_str, log_verbose=True, rag_limit=200, logger = None):
-        self.raw_config = yaml.safe_load(yaml_str)
-        self.env = SimulationEnvironment(self.raw_config, log_verbose=log_verbose, rag_limit=rag_limit, logger=logger)
-        self.log = self.env.log
-        # Se usa Ollama, avvia il server (solo per provider Ollama, si assume che i modelli siano già importati)
-        uses_ollama = any(agent.get('provider', 'ollama').lower() == 'ollama' for agent in self.raw_config.get('actors', []))
-        if uses_ollama:
-            self.startOllama()
-        # Chatbot esterno per domande in linguaggio naturale
-        self.chatbot = DoxaChatbot(self)
-
     def run(self):
-        epochs = self.raw_config['global_rules'].get('epochs', 1)
-        steps = self.raw_config['global_rules'].get('steps', 5)
-        mode = self.raw_config['global_rules'].get('execution_mode', 'sequential')
-        maintenance = self.raw_config.get('maintenance', {})
-
-        for e in range(epochs):
-            self.log.print_epoch(e + 1)
-            self.env.reset(self.raw_config['actors'])
-            
-            for s in range(steps):
-                self.log.print_step(s + 1)
-                ids = list(self.env.agents.keys())
-                random.shuffle(ids)
-                # Applica manutenzione (es. decay risorse)
-                for a_id in ids:
-                    for res, amt in maintenance.items():
-                        self.env.portfolios[a_id][res] = self.env.portfolios[a_id].get(res, 0) - amt
-                    # Controlla condizioni di kill (es. risorsa a 0)
-                    kill_conds = self.raw_config.get('kill_conditions', []) + self.env.agents[a_id].config.get('kill_conditions', [])
-                    for cond in kill_conds:
-                        res = cond['resource']
-                        threshold = cond['threshold']
-                        if self.env.portfolios[a_id].get(res, 0) <= threshold:
-                            self.log.print_kill(a_id, f"Condition met: {res} <= {threshold}")
-                            del self.env.agents[a_id]
-                            del self.env.portfolios[a_id]
-                            break
-                
-                if mode == 'sequential':
-                    for a_id in ids: self._step_agent(a_id)
-                else:
-                    with ThreadPoolExecutor() as executor:
-                        executor.map(self._step_agent, ids)
-            for a_id in self.env.agents:
-                self.check_victory_conditions(a_id)
+        try:
+            self._reset_runtime_storage()
+            epochs = self.raw_config['global_rules'].get('epochs', 1)
+            steps = self.raw_config['global_rules'].get('steps', 5)
+            mode = self.raw_config['global_rules'].get('execution_mode', 'sequential')
+            for epoch_index in range(epochs):
+                if self._stop_event.is_set():
+                    break
+                if not self._wait_if_paused():
+                    break
+                self.current_epoch = epoch_index + 1
+                self.current_step = 0
+                self.env.reset(self.raw_config['actors'])
+                if self.log:
+                    self.log.print_epoch(self.current_epoch)
+                self.record_snapshot("epoch_start")
+                for step_index in range(steps):
+                    if self._stop_event.is_set():
+                        break
+                    if not self._wait_if_paused():
+                        break
+                    self.current_step = step_index + 1
+                    if self.log:
+                        self.log.print_step(self.current_step)
+                    ids = list(self.env.agents.keys())
+                    random.shuffle(ids)
+                    self._apply_maintenance(ids)
+                    active_ids = [agent_id for agent_id in ids if agent_id in self.env.agents]
+                    if mode == 'sequential':
+                        for agent_id in active_ids:
+                            if self._stop_event.is_set():
+                                break
+                            if not self._wait_if_paused():
+                                break
+                            self._step_agent(agent_id)
+                            self.record_snapshot("agent_step", agent_id)
+                    else:
+                        with ThreadPoolExecutor() as executor:
+                            executor.map(self._step_agent, active_ids)
+                        self.record_snapshot("step_complete")
+                for agent_id in list(self.env.agents.keys()):
+                    self.check_victory_conditions(agent_id)
+            with self._state_lock:
+                if self.state != "errored":
+                    self.state = "completed" if not self._stop_event.is_set() else "idle"
+        except Exception as exc:
+            with self._state_lock:
+                self.state = "errored"
+                self.last_error = str(exc)
+            self.record_event({"type": "error", "text": str(exc)})
+            raise
+        finally:
+            with self._state_lock:
+                self._run_thread = None
+                self._stop_event.clear()
+                self._pause_event.set()
 
     def _step_agent(self, a_id):
+        if a_id not in self.env.agents:
+            return
         if self.log:
             self.log.print_turn(a_id)
         agent = self.env.agents[a_id]
-        reply = agent.generate_reply(messages=agent.chat_messages[agent] + [{"role": "user", "content": "Your turn."}])
+        try:
+            reply = agent.generate_reply(messages=agent.chat_messages[agent] + [{"role": "user", "content": "Your turn."}])
+        except Exception as exc:
+            message = str(exc)
+            transient_llm_error = (
+                "503" in message
+                or "UNAVAILABLE" in message.upper()
+                or "high demand" in message.lower()
+            )
+            if transient_llm_error:
+                notice = f"SKIPPED: transient LLM error for {a_id}: {message}"
+                if self.log:
+                    self.log.print_action(a_id, "llm_generate_reply", None, notice)
+                self.record_event({
+                    "type": "llm_transient_error",
+                    "agent": a_id,
+                    "text": notice,
+                })
+                return
+            raise
         if isinstance(reply, dict) and "tool_calls" in reply:
             for tc in reply["tool_calls"]:
                 try:
                     res = agent.execute_function(tc['function'])
-                    if isinstance(res, tuple) and res[0] == False:
+                    if isinstance(res, tuple) and res[0] is False:
                         raise Exception(res[1].get('content', 'Unknown error'))
-                except Exception as e:
+                except Exception:
                     ftc = tc['function'] if 'function' in tc else tc
                     if ftc is None or 'name' not in ftc:
-                        res = f"FAILED: Tool call missing or malformed."
+                        res = "FAILED: Tool call missing or malformed."
                         if self.log:
                             self.log.print_action(a_id, "tool_call", None, res)
                         agent.send(str(res), agent, request_reply=False, silent=True)
                         continue
                     name = ftc['name'][3:] if ftc['name'].startswith('op_') else ftc['name']
-                    # Parsing robusto parametri
                     args = ftc.get('arguments', {})
                     if not isinstance(args, dict):
-                        import json
                         try:
                             args = json.loads(args)
-                        except Exception as ex:
-                            res = f"FAILED: Invalid arguments for tool '{name}': {ex}"
+                        except Exception as exc:
+                            res = f"FAILED: Invalid arguments for tool '{name}': {exc}"
                             if self.log:
                                 self.log.print_action(a_id, f"op_{name}", None, res)
                             agent.send(str(res), agent, request_reply=False, silent=True)
                             continue
                     target = args.get('target')
-                    multiplier = args.get('multiplier', 1)
+                    multiplier = args.get('multiplier', args.get('inputMultiplier', 1))
                     res = self.env.execute_operation(a_id, name, target, multiplier)
                     if self.log:
                         self.log.print_action(a_id, f"op_{name}", target, res)
                 agent.send(str(res), agent, request_reply=False, silent=True)
-        elif isinstance(reply, str) and reply.strip():
-            if self.log:
-                self.log.print_think(a_id, f"(Implicit) {reply}")
+        elif isinstance(reply, str) and reply.strip() and self.log:
+            self.log.print_think(a_id, f"(Implicit) {reply}")
         self.check_victory_conditions(a_id)
 
     def check_victory_conditions(self, a_id):
-        # controlla le condizioni di vincita globali e per agente
+        if a_id not in self.env.agents or a_id not in self.env.portfolios:
+            return
         conditions = self.raw_config.get('victory_conditions', []) + self.env.agents[a_id].config.get('victory_conditions', [])
         for cond in conditions:
-            res = cond['resource']
+            resource_name = cond['resource']
             threshold = cond['threshold']
             scope = cond.get('scope', 'global')
             if scope == 'individual':
-                if self.env.portfolios[a_id].get(res, 0) >= threshold:
-                    self.log.print(f"\033[1;32m>>> {a_id} WINS with {res} = {self.env.portfolios[a_id].get(res, 0)}\033[0m")
+                if self.env.portfolios[a_id].get(resource_name, 0) >= threshold:
+                    self.log.print_victory(f"{a_id} wins with {resource_name} = {self.env.portfolios[a_id].get(resource_name, 0)}")
             else:
                 for agent_id, portfolio in self.env.portfolios.items():
-                    if portfolio.get(res, 0) >= threshold:
-                        self.log.print(f"\033[1;32m>>> {agent_id} WINS with {res} = {portfolio.get(res, 0)}\033[0m")
+                    if portfolio.get(resource_name, 0) >= threshold:
+                        self.log.print_victory(f"{agent_id} wins with {resource_name} = {portfolio.get(resource_name, 0)}")
         
 
 
