@@ -1,80 +1,8 @@
 import axios from 'axios';
+import { type AgentDetails, type AgentMemoryGraph, type AgentSummary, type ConfigResponse, type GodmodePayload, type MacroMetrics, type MarketOrderBook, type MarketSummary, type SimulationStatus, type TimelinePoint } from './types';
 
 const API_BASE = '/api';
 
-export interface SimulationStatus {
-  state: 'idle' | 'running' | 'paused' | 'completed' | 'errored';
-  run_id: string | null;
-  epoch: number;
-  step: number;
-  last_error: string | null;
-  agent_count: number;
-  available_actions: {
-    can_run: boolean;
-    can_pause: boolean;
-    can_resume: boolean;
-    can_reset: boolean;
-    can_restart: boolean;
-    can_step: boolean;
-  };
-}
-
-export interface ConfigResponse {
-  yaml_text: string;
-  source: { kind: string; value: string };
-  config: Record<string, unknown>;
-}
-
-export interface TimelinePoint {
-  timestamp: number;
-  run_id: string | null;
-  epoch: number;
-  step: number;
-  state: string;
-  reason: string;
-  totals?: Record<string, number>;
-  agents?: Record<string, Record<string, number>>;
-  resources?: Record<string, number>;
-}
-
-export interface AgentDetails {
-  agent: string;
-  portfolio: Record<string, number>;
-  constraints: Record<string, Record<string, number>>;
-  config: Record<string, unknown>;
-  alive: boolean;
-  death_reason: string | null;
-}
-
-export interface AgentSummary {
-  id: string;
-  alive: boolean;
-}
-
-export interface AgentMemoryDoc {
-  id: string;
-  content: string;
-  preview: string;
-  tokens: string[];
-}
-
-export interface AgentMemoryGraph {
-  agent: string;
-  docs: AgentMemoryDoc[];
-  graph: {
-    nodes: Array<Record<string, unknown>>;
-    edges: Array<Record<string, unknown>>;
-  };
-  stats: {
-    documents: number;
-    links: number;
-  };
-}
-
-export interface GodmodePayload {
-  action: string;
-  params: Record<string, unknown>;
-}
 
 export const getAgents = async () => {
   const res = await axios.get<{ agents: AgentSummary[] }>(`${API_BASE}/agents`);
@@ -189,6 +117,21 @@ export const getAgent = async (agent_id: string) => {
 export const getAgentMemory = async (agent_id: string, limit = 80) => {
   const res = await axios.get<AgentMemoryGraph>(`${API_BASE}/memory/${agent_id}`, { params: { limit } });
   return res.data;
+};
+
+export const getMarkets = async () => {
+  const res = await axios.get<{ markets: Record<string, MarketSummary> }>(`${API_BASE}/markets`);
+  return res.data.markets;
+};
+
+export const getMarketOrderBook = async (resource: string, depth = 10) => {
+  const res = await axios.get<MarketOrderBook>(`${API_BASE}/markets/${resource}/orderbook`, { params: { depth } });
+  return res.data;
+};
+
+export const getMacroMetrics = async () => {
+  const res = await axios.get<{ macro: MacroMetrics }>(`${API_BASE}/macro`);
+  return res.data.macro;
 };
 
 export const godmode = async (payload: GodmodePayload) => {

@@ -353,6 +353,20 @@ def get_relations():
     return {"relations": engine.get_relations()}
 
 
+# ── Macro metrics endpoints ──────────────────────────────────────────────────
+
+@app.get("/api/macro")
+def get_macro_metrics():
+    """Latest macro snapshot: Gini, HHI, price volatility, system panic."""
+    return {"macro": engine.get_macro_metrics()}
+
+
+@app.get("/api/macro/history")
+def get_macro_history():
+    """Full macro metrics history (up to 500 ticks)."""
+    return {"history": engine.get_macro_history()}
+
+
 @app.websocket("/ws/events")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)

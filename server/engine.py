@@ -20,6 +20,40 @@ import tempfile
 from autogen_core.memory import MemoryContent, MemoryMimeType
 from autogen_ext.memory.chromadb import ChromaDBVectorMemory, PersistentChromaDBVectorMemoryConfig, SentenceTransformerEmbeddingFunctionConfig
 
+
+_LOCAL_ENV_CACHE: Optional[Dict[str, str]] = None
+
+
+def _read_local_env_file() -> Dict[str, str]:
+    """Load simple KEY=VALUE pairs from server/.env once.
+    This keeps local development working without requiring the caller to export env vars.
+    """
+    global _LOCAL_ENV_CACHE
+    if _LOCAL_ENV_CACHE is not None:
+        return _LOCAL_ENV_CACHE
+    values: Dict[str, str] = {}
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, "r", encoding="utf-8") as handle:
+                for raw_line in handle:
+                    line = raw_line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    if key and value:
+                        values[key] = value
+        except OSError:
+            pass
+    _LOCAL_ENV_CACHE = values
+    return values
+
+
+def _resolve_secret(name: str, default: str = "") -> str:
+    return os.environ.get(name) or _read_local_env_file().get(name, default)
+
 # ==========================================
 # 0. WORLD STATE — formal world representation
 # ==========================================
@@ -123,6 +157,7 @@ class RelationGraph:
 @dataclass
 class Order:
     id: str
+    arrival_seq: int
     side: str           # "bid" | "ask"
     agent_id: str
     resource: str
@@ -132,6 +167,8 @@ class Order:
     filled: float = 0.0
     status: str = "open"   # open | filled | partial | cancelled
     created_tick: int = 0
+    ttl: int = -1            # ticks until expiry; -1 = never
+    order_type: str = "limit"   # limit | market
 
     @property
     def remaining(self) -> float:
@@ -149,8 +186,8 @@ class Market:
     price_history: List[tuple] = field(default_factory=list)  # (tick, price)
 
     def _sort(self):
-        self.bids.sort(key=lambda o: (-o.price, o.created_tick))
-        self.asks.sort(key=lambda o: (o.price, o.created_tick))
+        self.bids.sort(key=lambda o: (-o.price, o.created_tick, o.arrival_seq))
+        self.asks.sort(key=lambda o: (o.price, o.created_tick, o.arrival_seq))
 
     def best_bid(self) -> Optional[float]:
         for o in self.bids:
@@ -193,10 +230,11 @@ class Market:
 class MarketEngine:
     """Manages limit order books for configured markets."""
 
-    def __init__(self, markets_cfg: List[Dict]):
+    def __init__(self, markets_cfg: List[Dict], shared_lock=None):
         self.markets: Dict[str, Market] = {}
         self._order_index: Dict[str, Order] = {}   # order_id → Order
         self._order_counter = 1
+        self._lock = shared_lock or threading.RLock()
         for m in (markets_cfg or []):
             resource = m["resource"]
             self.markets[resource] = Market(
@@ -211,6 +249,16 @@ class MarketEngine:
         self._order_counter += 1
         return oid
 
+    def _execution_price(self, market: Market, bid: Order, ask: Order) -> float:
+        policy = market.config.get("execution_price_policy", "resting")
+        if policy == "midpoint":
+            return round((bid.price + ask.price) / 2.0, 8)
+        if policy == "aggressive":
+            aggressor = bid if bid.arrival_seq > ask.arrival_seq else ask
+            return float(aggressor.price)
+        resting = bid if bid.arrival_seq < ask.arrival_seq else ask
+        return float(resting.price)
+
     def _reserve(self, agent_id: str, reserve_res: str, reserve_qty: float, portfolios: Dict) -> bool:
         port = portfolios.get(agent_id, {})
         if port.get(reserve_res, 0) < reserve_qty:
@@ -224,155 +272,358 @@ class MarketEngine:
 
     def add_order(self, agent_id: str, side: str, resource: str, quantity: float,
                   price: float, portfolios: Dict, tick: int = 0) -> str:
-        market = self.markets.get(resource)
-        if not market:
-            return f"FAILED: No market for resource '{resource}'."
-        if quantity <= 0 or price <= 0:
-            return "FAILED: quantity and price must be positive."
-        cfg = market.config
-        min_price = cfg.get("min_price", 0)
-        max_price = cfg.get("max_price", float("inf"))
-        if not (min_price <= price <= max_price):
-            return f"FAILED: price {price} outside allowed range [{min_price}, {max_price}]."
-        currency = market.currency
-        if side == "bid":
-            # Reserve currency
-            total_cost = price * quantity
-            if not self._reserve(agent_id, currency, total_cost, portfolios):
-                return f"FAILED: Insufficient {currency} to place bid (need {total_cost})."
-        elif side == "ask":
-            # Reserve resource
-            if not self._reserve(agent_id, resource, quantity, portfolios):
-                return f"FAILED: Insufficient {resource} to place ask."
-        else:
-            return "FAILED: side must be 'bid' or 'ask'."
-        order = Order(
-            id=self._next_order_id(),
-            side=side,
-            agent_id=agent_id,
-            resource=resource,
-            currency=currency,
-            quantity=quantity,
-            price=price,
-            created_tick=tick,
-        )
-        self._order_index[order.id] = order
-        if side == "bid":
-            market.bids.append(order)
-        else:
-            market.asks.append(order)
-        market._sort()
-        # If clearing == "on_order", match immediately
-        if cfg.get("clearing") == "on_order":
-            self.clear_market(resource, portfolios, tick)
-        return f"SUCCESS: {order.id} placed ({side} {quantity}×{resource} @ {price} {currency})."
+        with self._lock:
+            market = self.markets.get(resource)
+            if not market:
+                return f"FAILED: No market for resource '{resource}'."
+            if quantity <= 0 or price <= 0:
+                return "FAILED: quantity and price must be positive."
+            cfg = market.config
+            min_price = cfg.get("min_price", 0)
+            max_price = cfg.get("max_price", float("inf"))
+            if not (min_price <= price <= max_price):
+                return f"FAILED: price {price} outside allowed range [{min_price}, {max_price}]."
+            currency = market.currency
+            if side == "bid":
+                total_cost = price * quantity
+                if not self._reserve(agent_id, currency, total_cost, portfolios):
+                    return f"FAILED: Insufficient {currency} to place bid (need {total_cost})."
+            elif side == "ask":
+                if not self._reserve(agent_id, resource, quantity, portfolios):
+                    return f"FAILED: Insufficient {resource} to place ask."
+            else:
+                return "FAILED: side must be 'bid' or 'ask'."
+            order = Order(
+                id=self._next_order_id(),
+                arrival_seq=self._order_counter - 1,
+                side=side,
+                agent_id=agent_id,
+                resource=resource,
+                currency=currency,
+                quantity=quantity,
+                price=price,
+                created_tick=tick,
+            )
+            self._order_index[order.id] = order
+            if side == "bid":
+                market.bids.append(order)
+            else:
+                market.asks.append(order)
+            market._sort()
+            if cfg.get("clearing") == "on_order":
+                self.clear_market(resource, portfolios, tick)
+            return f"SUCCESS: {order.id} placed ({side} {quantity}×{resource} @ {price} {currency})."
 
     def cancel_order(self, order_id: str, agent_id: str, portfolios: Dict) -> str:
-        order = self._order_index.get(order_id)
-        if not order:
-            return "FAILED: Order not found."
-        if order.agent_id != agent_id:
-            return "FAILED: Not your order."
-        if order.status not in ("open", "partial"):
-            return f"FAILED: Order status is '{order.status}', cannot cancel."
-        order.status = "cancelled"
-        # Release reserved resources
-        market = self.markets.get(order.resource)
-        if market:
-            if order.side == "bid":
-                refund = order.price * order.remaining
-                self._release(agent_id, order.currency, refund, portfolios)
-            else:
-                self._release(agent_id, order.resource, order.remaining, portfolios)
-        return f"SUCCESS: Order {order_id} cancelled."
+        with self._lock:
+            order = self._order_index.get(order_id)
+            if not order:
+                return "FAILED: Order not found."
+            if order.agent_id != agent_id:
+                return "FAILED: Not your order."
+            if order.status not in ("open", "partial"):
+                return f"FAILED: Order status is '{order.status}', cannot cancel."
+            order.status = "cancelled"
+            market = self.markets.get(order.resource)
+            if market:
+                if order.side == "bid":
+                    refund = order.price * order.remaining
+                    self._release(agent_id, order.currency, refund, portfolios)
+                else:
+                    self._release(agent_id, order.resource, order.remaining, portfolios)
+            return f"SUCCESS: Order {order_id} cancelled."
 
     def clear_market(self, resource: str, portfolios: Dict, tick: int) -> List[Dict]:
-        """FIFO price-time matching. Returns list of fill event dicts."""
+        """FIFO price-time or call-auction matching. Returns list of fill event dicts."""
+        with self._lock:
+            market = self.markets.get(resource)
+            if not market:
+                return []
+            if market.config.get("clearing") == "call_auction":
+                return self._call_auction_clear(resource, portfolios, tick)
+            fills = []
+            market._sort()
+            impact_factor = float(market.config.get("impact_factor", 0.0))
+            active_bids = [o for o in market.bids if o.status in ("open", "partial")]
+            active_asks = [o for o in market.asks if o.status in ("open", "partial")]
+
+            bi = ai = 0
+            while bi < len(active_bids) and ai < len(active_asks):
+                bid = active_bids[bi]
+                ask = active_asks[ai]
+                if bid.price < ask.price:
+                    break
+                fill_price = round(self._execution_price(market, bid, ask), 8)
+                fill_qty = min(bid.remaining, ask.remaining)
+                fill_cost = fill_price * fill_qty
+
+                surplus_currency = max(0.0, (bid.price - fill_price) * fill_qty)
+                self._release(bid.agent_id, market.resource, fill_qty, portfolios)
+                self._release(ask.agent_id, market.currency, fill_cost, portfolios)
+                if surplus_currency > 0:
+                    self._release(bid.agent_id, market.currency, surplus_currency, portfolios)
+
+                bid.filled += fill_qty
+                ask.filled += fill_qty
+                bid.status = "filled" if bid.remaining <= 1e-9 else "partial"
+                ask.status = "filled" if ask.remaining <= 1e-9 else "partial"
+
+                market.current_price = fill_price
+                # Permanent price impact: large fills push price beyond fill_price
+                if impact_factor > 0.0:
+                    rem_bids = sum(o.remaining for o in active_bids[bi:] if o.status in ("open", "partial"))
+                    rem_asks = sum(o.remaining for o in active_asks[ai:] if o.status in ("open", "partial"))
+                    depth = rem_bids + rem_asks
+                    frac = fill_qty / (depth + fill_qty) if (depth + fill_qty) > 0 else 0.0
+                    direction = 1 if bid.arrival_seq > ask.arrival_seq else -1
+                    market.current_price = round(fill_price * (1.0 + frac * impact_factor * direction), 8)
+                    cfg = market.config
+                    market.current_price = max(
+                        float(cfg.get("min_price", 0)),
+                        min(float(cfg.get("max_price", float("inf"))), market.current_price),
+                    )
+                market.price_history.append((tick, market.current_price))
+                market.price_history = market.price_history[-2000:]
+
+                fills.append({
+                    "resource": resource,
+                    "fill_price": fill_price,
+                    "fill_qty": fill_qty,
+                    "buyer": bid.agent_id,
+                    "seller": ask.agent_id,
+                    "bid_order": bid.id,
+                    "ask_order": ask.id,
+                    "tick": tick,
+                    "execution_price_policy": market.config.get("execution_price_policy", "resting"),
+                })
+
+                if bid.status == "filled":
+                    bi += 1
+                if ask.status == "filled":
+                    ai += 1
+
+            return fills
+
+    def get_price(self, resource: str) -> Optional[float]:
+        with self._lock:
+            m = self.markets.get(resource)
+            return m.current_price if m else None
+
+    def get_order_book(self, resource: str, depth: int = 10) -> Optional[Dict]:
+        with self._lock:
+            market = self.markets.get(resource)
+            if not market:
+                return None
+            return {**market.top_of_book(depth), "resource": resource, "currency": market.currency}
+
+    def get_open_orders_for(self, agent_id: str, resource: str = None) -> List[Order]:
+        with self._lock:
+            orders = [o for o in self._order_index.values()
+                      if o.agent_id == agent_id and o.status in ("open", "partial")]
+            if resource:
+                orders = [o for o in orders if o.resource == resource]
+            return list(orders)
+
+    # ── New microstructure methods ────────────────────────────────────────────
+
+    def expire_orders(self, tick: int, portfolios: Dict):
+        """Cancel all limit/market orders that have exceeded their TTL and refund reserves."""
+        with self._lock:
+            for order in list(self._order_index.values()):
+                if order.status not in ("open", "partial"):
+                    continue
+                if order.ttl < 0:
+                    continue  # no expiry
+                if tick - order.created_tick >= order.ttl:
+                    order.status = "cancelled"
+                    market = self.markets.get(order.resource)
+                    if market:
+                        if order.side == "bid":
+                            self._release(order.agent_id, order.currency,
+                                          order.price * order.remaining, portfolios)
+                        else:
+                            self._release(order.agent_id, order.resource,
+                                          order.remaining, portfolios)
+
+    def add_market_order(self, agent_id: str, side: str, resource: str,
+                         quantity: float, portfolios: Dict, tick: int = 0) -> str:
+        """Place an aggressive market order that sweeps available liquidity.
+        Uses current_price ± market_order_slip as worst-case price.
+        Order automatically expires the next tick if not fully matched."""
+        with self._lock:
+            market = self.markets.get(resource)
+            if not market:
+                return f"FAILED: No market for resource '{resource}'."
+            if quantity <= 0:
+                return "FAILED: quantity must be positive."
+            slip = float(market.config.get("market_order_slip", 0.1))
+            cfg = market.config
+            if side == "bid":
+                worst_price = market.current_price * (1.0 + slip)
+                worst_price = min(worst_price, float(cfg.get("max_price", float("inf"))))
+            else:
+                worst_price = max(1e-8, market.current_price * (1.0 - slip))
+                worst_price = max(worst_price, float(cfg.get("min_price", 1e-8)))
+        # add_order acquires the lock itself (RLock allows re-entrance)
+        result = self.add_order(agent_id, side, resource, quantity, worst_price, portfolios, tick)
+        if result.startswith("SUCCESS"):
+            order_id = result.split(":")[1].strip().split(" ")[0]
+            with self._lock:
+                if order_id in self._order_index:
+                    self._order_index[order_id].order_type = "market"
+                    self._order_index[order_id].ttl = 1   # expire next tick
+            # Trigger immediate clearing (RLock re-entrance)
+            self.clear_market(resource, portfolios, tick)
+        return result
+
+    def _call_auction_clear(self, resource: str, portfolios: Dict, tick: int) -> List[Dict]:
+        """Uniform-price call auction: find the price that maximises transacted volume.
+        Caller must hold self._lock (RLock re-entrance safe)."""
         market = self.markets.get(resource)
         if not market:
             return []
-        fills = []
-        market._sort()
-
         active_bids = [o for o in market.bids if o.status in ("open", "partial")]
         active_asks = [o for o in market.asks if o.status in ("open", "partial")]
+        if not active_bids or not active_asks:
+            return []
 
+        candidate_prices = sorted(
+            set(o.price for o in active_bids) | set(o.price for o in active_asks)
+        )
+        best_price = None
+        best_vol = 0.0
+        best_imbalance = float("inf")
+        for p in candidate_prices:
+            demand = sum(o.remaining for o in active_bids if o.price >= p)
+            supply = sum(o.remaining for o in active_asks if o.price <= p)
+            vol = min(demand, supply)
+            imbalance = abs(demand - supply)
+            if vol > best_vol or (vol == best_vol and imbalance < best_imbalance):
+                best_vol = vol
+                best_price = p
+                best_imbalance = imbalance
+
+        if best_price is None or best_vol <= 0:
+            return []
+
+        eligible_bids = sorted(
+            [o for o in active_bids if o.price >= best_price],
+            key=lambda o: (-o.price, o.created_tick, o.arrival_seq),
+        )
+        eligible_asks = sorted(
+            [o for o in active_asks if o.price <= best_price],
+            key=lambda o: (o.price, o.created_tick, o.arrival_seq),
+        )
+
+        fills = []
         bi = ai = 0
-        while bi < len(active_bids) and ai < len(active_asks):
-            bid = active_bids[bi]
-            ask = active_asks[ai]
-            if bid.price < ask.price:
-                break
-            # Matched — fill at midpoint
-            fill_price = round((bid.price + ask.price) / 2.0, 8)
-            fill_qty = min(bid.remaining, ask.remaining)
-            fill_cost = fill_price * fill_qty
+        remaining = best_vol
+        while bi < len(eligible_bids) and ai < len(eligible_asks) and remaining > 1e-9:
+            bid = eligible_bids[bi]
+            ask = eligible_asks[ai]
+            fill_qty = min(bid.remaining, ask.remaining, remaining)
+            fill_cost = best_price * fill_qty
+            surplus = (bid.price - best_price) * fill_qty
 
-            # Transfer resource: ask_agent → bid_agent
-            # Transfer currency: bid_agent → ask_agent
-            # Resources were reserved at order placement; release reserved, deliver to counterparty
-            # Bid reserved currency at bid.price; refund the surplus
-            surplus_currency = (bid.price - fill_price) * fill_qty
             self._release(bid.agent_id, market.resource, fill_qty, portfolios)
             self._release(ask.agent_id, market.currency, fill_cost, portfolios)
-            if surplus_currency > 0:
-                self._release(bid.agent_id, market.currency, surplus_currency, portfolios)
+            if surplus > 0:
+                self._release(bid.agent_id, market.currency, surplus, portfolios)
 
             bid.filled += fill_qty
             ask.filled += fill_qty
             bid.status = "filled" if bid.remaining <= 1e-9 else "partial"
             ask.status = "filled" if ask.remaining <= 1e-9 else "partial"
-
-            market.current_price = fill_price
-            market.price_history.append((tick, fill_price))
-            market.price_history = market.price_history[-2000:]
+            remaining -= fill_qty
 
             fills.append({
                 "resource": resource,
-                "fill_price": fill_price,
+                "fill_price": best_price,
                 "fill_qty": fill_qty,
                 "buyer": bid.agent_id,
                 "seller": ask.agent_id,
                 "bid_order": bid.id,
                 "ask_order": ask.id,
                 "tick": tick,
+                "execution_price_policy": "call_auction",
             })
-
             if bid.status == "filled":
                 bi += 1
             if ask.status == "filled":
                 ai += 1
 
-        # Price impact: if no fills occurred but there are orders on one side, nudge price
+        if fills:
+            market.current_price = best_price
+            market.price_history.append((tick, best_price))
+            market.price_history = market.price_history[-2000:]
         return fills
 
-    def get_price(self, resource: str) -> Optional[float]:
-        m = self.markets.get(resource)
-        return m.current_price if m else None
+    def refresh_market_makers(self, portfolios: Dict, tick: int):
+        """Cancel all synthetic MM orders and re-quote around mid-price with inventory skew."""
+        for resource, market in self.markets.items():
+            mm_cfg = market.config.get("market_maker")
+            if not mm_cfg:
+                continue
+            mm_id = f"__mm_{resource}"
+            spread = float(mm_cfg.get("spread", 0.04))
+            depth = float(mm_cfg.get("depth", 10))
+            inv_limit = float(mm_cfg.get("inventory_limit", 200))
+            skew_factor = float(mm_cfg.get("inventory_skew", 0.5))
 
-    def get_open_orders_for(self, agent_id: str, resource: str = None) -> List[Order]:
-        orders = [o for o in self._order_index.values()
-                  if o.agent_id == agent_id and o.status in ("open", "partial")]
-        if resource:
-            orders = [o for o in orders if o.resource == resource]
-        return orders
+            # Cancel existing MM orders and refund reserves
+            with self._lock:
+                for order in list(self._order_index.values()):
+                    if order.agent_id == mm_id and order.status in ("open", "partial"):
+                        order.status = "cancelled"
+                        if order.side == "bid":
+                            self._release(mm_id, market.currency,
+                                          order.price * order.remaining, portfolios)
+                        else:
+                            self._release(mm_id, market.resource, order.remaining, portfolios)
+                mid = market.mid_price()
+                port = portfolios.get(mm_id, {})
+                inventory = port.get(resource, 0.0)
+
+            # Inventory skew: long MM lowers ask; short MM raises bid
+            inv_ratio = max(-1.0, min(1.0, inventory / inv_limit)) if inv_limit > 0 else 0.0
+            skew = inv_ratio * skew_factor * spread
+            cfg = market.config
+            bid_price = round(mid * (1.0 - spread / 2.0 - skew), 8)
+            ask_price = round(mid * (1.0 + spread / 2.0 - skew), 8)
+            bid_price = max(float(cfg.get("min_price", 1e-8)), bid_price)
+            ask_price = min(float(cfg.get("max_price", float("inf"))), ask_price)
+            if bid_price >= ask_price:
+                continue  # degenerate spread
+
+            # Ensure MM portfolio has enough to back its orders
+            bid_cost = bid_price * depth
+            port = portfolios.setdefault(mm_id, {})
+            if port.get(market.currency, 0.0) < bid_cost:
+                port[market.currency] = bid_cost * 2
+            if port.get(resource, 0.0) < depth:
+                port[resource] = depth * 2
+
+            self.add_order(mm_id, "bid", resource, depth, bid_price, portfolios, tick)
+            self.add_order(mm_id, "ask", resource, depth, ask_price, portfolios, tick)
 
     def summary(self) -> Dict:
-        result = {}
-        for res, m in self.markets.items():
-            active_bids = [o for o in m.bids if o.status in ("open", "partial")]
-            active_asks = [o for o in m.asks if o.status in ("open", "partial")]
-            result[res] = {
-                "resource": res,
-                "currency": m.currency,
-                "current_price": m.current_price,
-                "mid_price": m.mid_price(),
-                "bids_count": len(active_bids),
-                "asks_count": len(active_asks),
-                "bids_volume": sum(o.remaining for o in active_bids),
-                "asks_volume": sum(o.remaining for o in active_asks),
-            }
-        return result
+        with self._lock:
+            result = {}
+            for res, m in self.markets.items():
+                active_bids = [o for o in m.bids if o.status in ("open", "partial")]
+                active_asks = [o for o in m.asks if o.status in ("open", "partial")]
+                result[res] = {
+                    "resource": res,
+                    "currency": m.currency,
+                    "current_price": m.current_price,
+                    "mid_price": m.mid_price(),
+                    "bids_count": len(active_bids),
+                    "asks_count": len(active_asks),
+                    "bids_volume": sum(o.remaining for o in active_bids),
+                    "asks_volume": sum(o.remaining for o in active_asks),
+                    "execution_price_policy": m.config.get("execution_price_policy", "resting"),
+                }
+            return result
 
 
 # ──────────────────────────────────────────
@@ -390,6 +641,7 @@ class WorldEventEffect:
     price_set: Optional[float] = None
     trust_source: Optional[str] = None
     trust_delta: Optional[float] = None
+    contagion_rate: float = 0.0   # fraction of delta propagated to trusted neighbors
 
 
 @dataclass
@@ -420,6 +672,7 @@ def _parse_world_event(raw: Dict) -> WorldEventDef:
         price_set=eff_raw.get("price_set"),
         trust_source=eff_raw.get("trust_source"),
         trust_delta=eff_raw.get("trust_delta"),
+        contagion_rate=float(eff_raw.get("contagion_rate", 0.0)),
     )
     trigger = raw.get("trigger", {})
     cond = trigger.get("condition", {})
@@ -555,7 +808,171 @@ class WorldEventScheduler:
                     relation_graph.update_trust(src, tgt, eff.trust_delta)
                     results.append(f"trust.{src}->{tgt} {'+' if eff.trust_delta >= 0 else ''}{eff.trust_delta}")
 
+        # Contagion: propagate resource delta through trust graph to non-target neighbors
+        if eff.contagion_rate > 0.0 and eff.resource and relation_graph:
+            base_amount = (eff.delta if ev.event_type in ("shock", "conditional") else eff.rate) or 0.0
+            for aid in target_ids:
+                for rec in relation_graph.get_relations_for(aid):
+                    neighbor = rec.target
+                    if neighbor in portfolios and neighbor not in target_ids:
+                        spread = base_amount * eff.contagion_rate * rec.trust
+                        portfolios[neighbor][eff.resource] = (
+                            portfolios[neighbor].get(eff.resource, 0) + spread
+                        )
+                        results.append(
+                            f"contagion.{aid}->{neighbor}.{eff.resource} "
+                            f"{'+' if spread >= 0 else ''}{spread:.4f}"
+                        )
+
         return results
+
+# ==========================================
+# AGENT ECONOMICS — Utility, Risk, Expectations
+# ==========================================
+
+@dataclass
+class AgentEconomics:
+    """Formal economic preferences for one agent, parsed from actor.economics in YAML.
+    All fields are optional; defaults produce neutral/linear behavior."""
+    utility_fn: str = "linear"             # linear | crra | cara
+    risk_aversion: float = 0.0             # 0 = risk-neutral; higher = more averse
+    discount_factor: float = 0.95          # intertemporal patience
+    liquidity_floor: Dict[str, float] = field(default_factory=dict)
+    price_expectation_window: int = 5      # rolling window for EWA
+    learning_rate: float = 0.1             # EWA weight on the newest observation
+
+    @classmethod
+    def from_config(cls, cfg: Optional[Dict]) -> "AgentEconomics":
+        if not cfg:
+            return cls()
+        return cls(
+            utility_fn=cfg.get("utility", "linear"),
+            risk_aversion=float(cfg.get("risk_aversion", 0.0)),
+            discount_factor=float(cfg.get("discount_factor", 0.95)),
+            liquidity_floor={k: float(v) for k, v in cfg.get("liquidity_floor", {}).items()},
+            price_expectation_window=int(cfg.get("price_expectation_window", 5)),
+            learning_rate=float(cfg.get("learning_rate", 0.1)),
+        )
+
+    def compute_utility(self, portfolio: Dict[str, float]) -> float:
+        """Scalar utility of current portfolio wealth (sum of positive resources)."""
+        wealth = sum(max(0.0, v) for v in portfolio.values() if isinstance(v, (int, float)))
+        if wealth <= 1e-9:
+            return -1e9
+        if self.utility_fn == "crra":
+            import math
+            gamma = max(1e-4, self.risk_aversion)
+            if abs(gamma - 1.0) < 1e-6:
+                return math.log(wealth)
+            return (wealth ** (1.0 - gamma)) / (1.0 - gamma)
+        if self.utility_fn == "cara":
+            import math
+            alpha = max(1e-6, self.risk_aversion)
+            return -math.exp(-alpha * wealth) / alpha
+        return wealth  # linear
+
+    def risk_label(self) -> str:
+        if self.risk_aversion >= 0.7:
+            return "CONSERVATIVE"
+        if self.risk_aversion >= 0.3:
+            return "MODERATE"
+        return "AGGRESSIVE"
+
+    def liquidity_advisory(self, portfolio: Dict[str, float]) -> List[str]:
+        """Returns list of resources currently below declared liquidity floor."""
+        return [
+            f"{res} below floor {floor} (have {portfolio.get(res, 0.0):.2f})"
+            for res, floor in self.liquidity_floor.items()
+            if portfolio.get(res, 0.0) < floor
+        ]
+
+
+# ==========================================
+# MACRO TRACKER — Aggregate economic metrics
+# ==========================================
+
+class MacroTracker:
+    """Computes and records aggregate economic metrics at each simulation tick."""
+
+    def __init__(self):
+        self.history: List[Dict] = []
+
+    def reset(self):
+        self.history = []
+
+    def compute(self, portfolios: Dict[str, Dict],
+                market_engine: Optional["MarketEngine"], tick: int) -> Dict:
+        snap: Dict[str, Any] = {"tick": tick}
+
+        # Per-resource distribution stats (Gini, HHI, totals)
+        all_resources: set = set()
+        for port in portfolios.values():
+            all_resources.update(k for k, v in port.items() if isinstance(v, (int, float)))
+
+        resource_stats: Dict[str, Any] = {}
+        for res in sorted(all_resources):
+            vals = [max(0.0, p.get(res, 0.0)) for p in portfolios.values()]
+            total = sum(vals)
+            resource_stats[res] = {
+                "total": round(total, 6),
+                "mean": round(total / len(vals), 6) if vals else 0.0,
+                "gini": round(self._gini(vals), 4),
+                "hhi": round(self._hhi(vals), 4),
+            }
+        snap["resources"] = resource_stats
+
+        # Market price volatility
+        market_stats: Dict[str, Any] = {}
+        if market_engine:
+            for res, m in market_engine.markets.items():
+                recent = [p for _, p in m.price_history[-30:]]
+                if len(recent) >= 2:
+                    mean_p = sum(recent) / len(recent)
+                    std = (sum((p - mean_p) ** 2 for p in recent) / len(recent)) ** 0.5
+                else:
+                    std = 0.0
+                market_stats[res] = {
+                    "last_price": m.current_price,
+                    "volatility": round(std, 6),
+                    "min_recent": round(min(recent), 6) if recent else m.current_price,
+                    "max_recent": round(max(recent), 6) if recent else m.current_price,
+                }
+        snap["market_stats"] = market_stats
+
+        # System-wide panic average
+        panic_vals = [
+            p.get("panic", 0.0)
+            for p in portfolios.values()
+            if "panic" in p and isinstance(p["panic"], (int, float))
+        ]
+        snap["system_panic"] = round(sum(panic_vals) / len(panic_vals), 4) if panic_vals else 0.0
+
+        self.history.append(snap)
+        self.history = self.history[-500:]
+        return snap
+
+    def latest(self) -> Optional[Dict]:
+        return self.history[-1] if self.history else None
+
+    @staticmethod
+    def _gini(values: List[float]) -> float:
+        """Gini coefficient in [0, 1]. 0 = perfect equality."""
+        xs = sorted(values)
+        n = len(xs)
+        if n == 0 or sum(xs) == 0:
+            return 0.0
+        total = sum(xs)
+        gini_sum = sum((2 * (i + 1) - n - 1) * x for i, x in enumerate(xs))
+        return gini_sum / (n * total)
+
+    @staticmethod
+    def _hhi(values: List[float]) -> float:
+        """Herfindahl-Hirschman Index in [0, 1]. 1 = monopoly."""
+        total = sum(values)
+        if total == 0:
+            return 0.0
+        return sum((v / total) ** 2 for v in values)
+
 
 # ==========================================
 # 1. UI & LOGGING
@@ -605,17 +1022,57 @@ class DoxaAgent(autogen.ConversableAgent):
         # Provider/model selection logic
         provider = config.get('provider', 'ollama').lower()
         model = config.get('model', config.get('model_name', 'llama3.1:8b'))
-        if provider == 'ollama':
+        if provider == 'openai':
             llm_config = {
                 "config_list": [{
                     "model": model,
-                    "base_url": "http://localhost:11434/v1",
                     "api_type": "openai",
-                    "api_key": "ollama",
-                    "price": [0,0]
+                    "api_key": config.get('api_key', os.environ.get('OPENAI_API_KEY', '')),
+                    "base_url": config.get('base_url', 'https://api.openai.com/v1'),
                 }],
                 "temperature": 0.1,
             }
+        elif provider == 'google':
+            google_api_key = config.get('api_key') or _resolve_secret('GOOGLE_API_KEY', '')
+            google_project = (
+                config.get('project')
+                or config.get('google_project')
+                or _resolve_secret('GOOGLE_CLOUD_PROJECT', '')
+                or _resolve_secret('GCP_PROJECT', '')
+            )
+            google_location = (
+                config.get('location')
+                or config.get('google_location')
+                or _resolve_secret('GOOGLE_CLOUD_LOCATION', 'us-central1')
+            )
+            # Prefer AI Studio / Gemini API when an API key is present and no GCP project is configured.
+            # This avoids the Vertex-only path that raises GoogleAuthError in local setups.
+            if google_api_key and not google_project:
+                llm_config = {
+                    "config_list": [{
+                        "model": model,
+                        "api_type": "openai",
+                        "api_key": google_api_key,
+                        "base_url": config.get('base_url', 'https://generativelanguage.googleapis.com/v1beta/openai/'),
+                    }],
+                    "temperature": 0.1,
+                }
+            elif google_project:
+                try:
+                    import vertexai
+
+                    vertexai.init(project=google_project, location=google_location)
+                except Exception:
+                    pass
+                llm_config = {
+                    "config_list": [{
+                        "model": model,
+                        "api_type": "google",
+                        "api_key": google_api_key,
+                        "base_url": config.get('base_url', 'https://generativelanguage.googleapis.com/v1beta'),
+                    }],
+                    "temperature": 0.1,
+                }
         elif provider == 'openai':
             llm_config = {
                 "config_list": [{
@@ -627,15 +1084,52 @@ class DoxaAgent(autogen.ConversableAgent):
                 "temperature": 0.1,
             }
         elif provider == 'google':
-            llm_config = {
-                "config_list": [{
-                    "model": model,
-                    "api_type": "google",
-                    "api_key": config.get('api_key', os.environ.get('GOOGLE_API_KEY', '')),
-                    "base_url": config.get('base_url', 'https://generativelanguage.googleapis.com/v1beta'),
-                }],
-                "temperature": 0.1,
-            }
+            google_api_key = config.get('api_key') or _resolve_secret('GOOGLE_API_KEY', '')
+            google_project = (
+                config.get('project')
+                or config.get('google_project')
+                or _resolve_secret('GOOGLE_CLOUD_PROJECT', '')
+                or _resolve_secret('GCP_PROJECT', '')
+            )
+            google_location = (
+                config.get('location')
+                or config.get('google_location')
+                or _resolve_secret('GOOGLE_CLOUD_LOCATION', 'us-central1')
+            )
+
+            # Prefer AI Studio / Gemini API when an API key is present and no GCP project is configured.
+            # This avoids the Vertex-only path that raises GoogleAuthError in local setups.
+            if google_api_key and not google_project:
+                llm_config = {
+                    "config_list": [{
+                        "model": model,
+                        "api_type": "openai",
+                        "api_key": google_api_key,
+                        "base_url": config.get('base_url', 'https://generativelanguage.googleapis.com/v1beta/openai/'),
+                    }],
+                    "temperature": 0.1,
+                }
+            elif google_project:
+                try:
+                    import vertexai
+
+                    vertexai.init(project=google_project, location=google_location)
+                except Exception:
+                    pass
+                llm_config = {
+                    "config_list": [{
+                        "model": model,
+                        "api_type": "google",
+                        "api_key": google_api_key,
+                        "base_url": config.get('base_url', 'https://generativelanguage.googleapis.com/v1beta'),
+                    }],
+                    "temperature": 0.1,
+                }
+            else:
+                raise ValueError(
+                    "Google provider requires either GOOGLE_API_KEY (Gemini API / AI Studio) "
+                    "or GOOGLE_CLOUD_PROJECT / project (Vertex AI)."
+                )
         elif provider == 'grok':
             llm_config = {
                 "config_list": [{
@@ -647,7 +1141,16 @@ class DoxaAgent(autogen.ConversableAgent):
                 "temperature": 0.1,
             }
         else:
-            raise ValueError(f"Unknown provider: {provider}")
+            llm_config = {
+                "config_list": [{
+                    "model": model,
+                    "base_url": "http://localhost:11434/v1",
+                    "api_type": "openai",
+                    "api_key": "ollama",
+                    "price": [0,0]
+                }],
+                "temperature": 0.1,
+            }
 
         super().__init__(
             name=agent_id,
@@ -680,16 +1183,41 @@ class DoxaAgent(autogen.ConversableAgent):
         # Market prices
         market_lines = []
         me = getattr(self.env, 'market_engine', None)
-        if me and me.markets:
-            for res, m in me.markets.items():
-                bb = m.best_bid()
-                ba = m.best_ask()
+        market_summary = me.summary() if me else {}
+        if market_summary:
+            for res, m in market_summary.items():
+                bb = m.get('mid_price') if m.get('bids_count', 0) > 0 else None
+                ba = None
+                book = me.get_order_book(res, depth=1) if me else None
+                if book:
+                    bb = book['bids'][0]['price'] if book['bids'] else None
+                    ba = book['asks'][0]['price'] if book['asks'] else None
                 market_lines.append(
-                    f"  {res}/{m.currency}: last={m.current_price:.4f}"
+                    f"  {res}/{m['currency']}: last={m['current_price']:.4f}"
                     + (f" bid={bb:.4f}" if bb is not None else "")
                     + (f" ask={ba:.4f}" if ba is not None else "")
                 )
         market_info = "\n=== MARKETS ===\n" + ("\n".join(market_lines) if market_lines else "None")
+
+        # Economics & objectives context
+        econ = getattr(self.env, 'agent_economics_map', {}).get(self.agent_id)
+        economics_lines = []
+        if econ is not None:
+            util_val = econ.compute_utility(portfolio)
+            economics_lines.append(
+                f"  Utility ({econ.utility_fn}, risk_aversion={econ.risk_aversion:.2f}): "
+                f"{util_val:.4f} | Profile: {econ.risk_label()}"
+            )
+            advisories = econ.liquidity_advisory(portfolio)
+            if advisories:
+                economics_lines.append("⚠ Liquidity advisory: " + "; ".join(advisories))
+        price_exp = getattr(self.env, 'price_expectations', {}).get(self.agent_id, {})
+        if price_exp:
+            exp_strs = ", ".join(f"{res}={val:.4f}" for res, val in sorted(price_exp.items()))
+            economics_lines.append(f"  Price expectations (EWA): {exp_strs}")
+        economics_info = "\n=== OBJECTIVES & EXPECTATIONS ===\n" + (
+            "\n".join(economics_lines) if economics_lines else "None"
+        )
 
         state_prompt = f"""{self.persona}
 === YOUR STATE ===
@@ -698,6 +1226,7 @@ OTHERS: {other_agents}
 {trade_info}
 {relations_info}
 {market_info}
+{economics_info}
 
 === RULES ===
 1. You MUST use a tool to act.
@@ -794,14 +1323,29 @@ OTHERS: {other_agents}
             me = getattr(self.env, 'market_engine', None)
             if not me:
                 return "FAILED: No market engine configured."
-            m = me.markets.get(resource)
-            if not m:
+            book = me.get_order_book(resource, depth=5)
+            if not book:
                 return f"FAILED: No market for {resource}."
-            book = m.top_of_book(depth=5)
-            lines = [f"=== ORDER BOOK: {resource}/{m.currency} (last={book['last_price']:.4f}) ==="]
-            lines.append("BIDS: " + ", ".join(f"{e['qty']}@{e['price']}" for e in book["bids"]) or "empty")
-            lines.append("ASKS: " + ", ".join(f"{e['qty']}@{e['price']}" for e in book["asks"]) or "empty")
+            lines = [f"=== ORDER BOOK: {resource}/{book['currency']} (last={book['last_price']:.4f}) ==="]
+            bid_line = ", ".join(f"{e['qty']}@{e['price']}" for e in book["bids"])
+            ask_line = ", ".join(f"{e['qty']}@{e['price']}" for e in book["asks"])
+            lines.append("BIDS: " + (bid_line or "empty"))
+            lines.append("ASKS: " + (ask_line or "empty"))
             return "\n".join(lines)
+        def place_market_buy_order(resource: str, quantity: float) -> str:
+            """Place a market buy order that sweeps best asks at current price (+slip). Expires next tick if unmatched."""
+            me = getattr(self.env, 'market_engine', None)
+            if not me:
+                return "FAILED: No market engine configured."
+            tick = getattr(self.env, '_current_tick', 0)
+            return me.add_market_order(self.agent_id, "bid", resource, quantity, self.env.portfolios, tick)
+        def place_market_sell_order(resource: str, quantity: float) -> str:
+            """Place a market sell order that sweeps best bids at current price (-slip). Expires next tick if unmatched."""
+            me = getattr(self.env, 'market_engine', None)
+            if not me:
+                return "FAILED: No market engine configured."
+            tick = getattr(self.env, '_current_tick', 0)
+            return me.add_market_order(self.agent_id, "ask", resource, quantity, self.env.portfolios, tick)
         def think(thought: str) -> str:
             self.logger.print_think(self.agent_id, thought)
             return "Thought logged."
@@ -843,7 +1387,9 @@ OTHERS: {other_agents}
         if can_trade and trading_mode in ('otc', 'both'):
             available_tools += [make_trade_offer, accept_trade, reject_trade]
         if can_trade and trading_mode in ('lob', 'both'):
-            available_tools += [place_buy_order, place_sell_order, cancel_order, get_market_price, get_order_book]
+            available_tools += [place_buy_order, place_sell_order,
+                                place_market_buy_order, place_market_sell_order,
+                                cancel_order, get_market_price, get_order_book]
         if can_think:
             available_tools.append(think)
         if can_chat:
@@ -893,6 +1439,8 @@ class SimulationEnvironment:
             self.log = ConsoleLogger() if log_verbose else None
         # RAG memory per agent (persistente tra i reset)
         self.agent_memories = {}
+        self._rag_locks = {}
+        self._rag_stats = {}
         self.rag_limit = rag_limit
         self._lock = threading.RLock()
         self._current_tick: int = 0
@@ -901,6 +1449,10 @@ class SimulationEnvironment:
         self.relation_graph = RelationGraph()
         self.market_engine: Optional[MarketEngine] = self._build_market_engine()
         self.event_scheduler: Optional[WorldEventScheduler] = self._build_event_scheduler()
+        # Macro and agent-economics subsystems (no reset required until reset() is called)
+        self.macro_tracker: MacroTracker = MacroTracker()
+        self.agent_economics_map: Dict[str, AgentEconomics] = {}
+        self.price_expectations: Dict[str, Dict[str, float]] = {}  # agent_id → resource → EWA price
 
     # ── backward-compat property shims ──────────────────────────────────────
     @property
@@ -932,13 +1484,31 @@ class SimulationEnvironment:
         markets_cfg = self.global_rules.get('markets', [])
         if not markets_cfg:
             return None
-        return MarketEngine(markets_cfg)
+        return MarketEngine(markets_cfg, shared_lock=self._lock)
 
     def _build_event_scheduler(self) -> Optional["WorldEventScheduler"]:
         events_cfg = self.config.get('world_events', [])
         if not events_cfg:
             return None
         return WorldEventScheduler(events_cfg)
+
+    def _setup_market_maker_portfolios(self):
+        """Create synthetic portfolio entries for the per-market market-maker agent."""
+        me = self.market_engine
+        if not me:
+            return
+        for resource, market in me.markets.items():
+            mm_cfg = market.config.get("market_maker")
+            if not mm_cfg:
+                continue
+            mm_id = f"__mm_{resource}"
+            depth = float(mm_cfg.get("depth", 10))
+            inv_limit = float(mm_cfg.get("inventory_limit", 200))
+            initial_price = market.current_price
+            self._portfolios[mm_id] = {
+                market.currency: max(inv_limit * initial_price * 2, depth * initial_price * 4),
+                resource: max(inv_limit, depth * 2),
+            }
 
     # ────────────────────────────────────────────────────────────────────────
     def reset(self, actors_cfg):
@@ -972,6 +1542,10 @@ class SimulationEnvironment:
                             )
                         )
                         self.agent_memories[a_id] = memory
+                    if can_rag and a_id not in self._rag_locks:
+                        self._rag_locks[a_id] = threading.RLock()
+                    if can_rag and a_id not in self._rag_stats:
+                        self._rag_stats[a_id] = {"initialized": False, "estimated_count": 0}
             # Cleanup memorie non più usate
             to_remove = [aid for aid in self.agent_memories if aid not in self._portfolios]
             for aid in to_remove:
@@ -980,6 +1554,8 @@ class SimulationEnvironment:
                 except Exception:
                     pass
                 del self.agent_memories[aid]
+                self._rag_locks.pop(aid, None)
+                self._rag_stats.pop(aid, None)
             # Collega sub-agenti ai leader (dopo creazione agenti)
             for a_id, agent in self._agents.items():
                 if getattr(agent, 'is_leader', False):
@@ -1000,6 +1576,17 @@ class SimulationEnvironment:
                 self.event_scheduler.reset()
             else:
                 self.event_scheduler = self._build_event_scheduler()
+            # Reset macro / economics subsystems
+            self.macro_tracker.reset()
+            self.price_expectations = {}
+            self.agent_economics_map = {}
+            for _actor in actors_cfg:
+                _replicas = _actor.get("replicas", 1)
+                _econ = AgentEconomics.from_config(_actor.get("economics"))
+                for _i in range(_replicas):
+                    _a_id = f"{_actor['id']}_{_i+1}" if _replicas > 1 else _actor["id"]
+                    self.agent_economics_map[_a_id] = _econ
+            self._setup_market_maker_portfolios()
 
     def save_memory_rag(self, agent_id, knowledge):
         """
@@ -1007,31 +1594,54 @@ class SimulationEnvironment:
         """
         with self._lock:
             memory = self.agent_memories.get(agent_id)
-            if not memory:
-                return "FAILED: No RAG memory for this agent."
-            import asyncio
-            async def add_knowledge():
-                # Pruning FIFO se superato il limite
+            rag_lock = self._rag_locks.get(agent_id)
+            rag_stats = self._rag_stats.setdefault(agent_id, {"initialized": False, "estimated_count": 0})
+            rag_limit = self.rag_limit
+        if not memory or not rag_lock:
+            return "FAILED: No RAG memory for this agent."
+
+        payload = [knowledge] if isinstance(knowledge, str) else knowledge
+        if not isinstance(payload, list) or any(not isinstance(item, str) for item in payload):
+            return "FAILED: Invalid knowledge type."
+        if not payload:
+            return "FAILED: Empty knowledge payload."
+
+        import asyncio
+
+        async def add_knowledge():
+            estimated_count = int(rag_stats.get("estimated_count", 0))
+            initialized = bool(rag_stats.get("initialized", False))
+            docs = None
+
+            if not initialized:
                 docs = await memory.list()
-                if len(docs) >= self.rag_limit:
-                    # Rimuovi i più vecchi
-                    to_remove = docs[:len(docs)-self.rag_limit+1]
-                    for d in to_remove:
-                        await memory.delete(d.id)
-                if isinstance(knowledge, str):
-                    await memory.add(MemoryContent(content=knowledge, mime_type=MemoryMimeType.TEXT))
-                elif isinstance(knowledge, list):
-                    for k in knowledge:
-                        await memory.add(MemoryContent(content=k, mime_type=MemoryMimeType.TEXT))
-                else:
-                    return "FAILED: Invalid knowledge type."
-                return "SUCCESS: Knowledge saved to RAG."
+                estimated_count = len(docs)
+                initialized = True
+
+            overflow = max(0, estimated_count + len(payload) - rag_limit)
+            if overflow > 0:
+                docs = docs if docs is not None else await memory.list()
+                delete_count = min(len(docs), overflow)
+                for document in docs[:delete_count]:
+                    await memory.delete(document.id)
+                estimated_count = max(0, len(docs) - delete_count)
+
+            for item in payload:
+                await memory.add(MemoryContent(content=item, mime_type=MemoryMimeType.TEXT))
+            estimated_count += len(payload)
+            return {"initialized": initialized, "estimated_count": estimated_count}
+
+        with rag_lock:
             try:
                 loop = asyncio.get_event_loop()
             except RuntimeError:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-            return loop.run_until_complete(add_knowledge())
+            updated_stats = loop.run_until_complete(add_knowledge())
+
+        with self._lock:
+            self._rag_stats[agent_id] = updated_stats
+        return "SUCCESS: Knowledge saved to RAG."
 
     def get_agent_memory_graph(self, agent_id: str, limit: int = 80):
         import asyncio
@@ -1283,6 +1893,15 @@ class DoxaChatbot(autogen.ConversableAgent):
             name="DoxaChatbot",
             llm_config=llm_config,
             human_input_mode="NEVER",
+            system_message=(
+                "You are an assistant that answers questions about a running multi-agent simulation. "
+                "You have access to tools to extract live data and the initial YAML config. "
+                "If the question is hypothetical, reason about it using the current state and the rules. "
+                "If it is factual, base your answer strictly on the data returned by the tools. "
+                "If you cannot answer with certainty, explain what data is missing. "
+                "Always call a tool before answering if data is needed. "
+                "Always respond in clear, detailed English."
+            ),
         )
         self._register_tools()
 
@@ -1311,23 +1930,28 @@ class DoxaChatbot(autogen.ConversableAgent):
         """
         Answers a natural language question about the simulation using the available tools. Always in English.
         """
-        prompt = (
-            "You are an assistant that answers questions about the following multi-agent simulation. "
-            "You have access to tools to extract data and to the initial YAML. "
-            "If the question is hypothetical, explain what would happen according to the rules and current state. "
-            "If it is factual, answer only based on the provided data. "
-            "If you cannot answer with certainty, explain what is missing. "
-            "Use the tools if needed. "
-            "Always answer in clear, detailed English."
+        # initiate_chat drives the full tool-calling loop:
+        # LLM generates a tool_call → proxy executes it → LLM sees the result → final text reply.
+        # generate_reply alone would return after the first turn (the tool_call) and never execute.
+        proxy = autogen.UserProxyAgent(
+            name="chatbot_proxy",
+            human_input_mode="NEVER",
+            max_consecutive_auto_reply=8,
+            code_execution_config=False,
         )
-        messages = [
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": query}
-        ]
-        reply = self.generate_reply(messages=messages)
-        if isinstance(reply, dict) and "content" in reply:
-            return reply["content"]
-        return str(reply)
+        # Share all registered tool functions with the proxy so it can execute them.
+        proxy._function_map = dict(self._function_map)
+        try:
+            result = proxy.initiate_chat(
+                self,
+                message=query,
+                max_turns=8,
+                silent=True,
+                summary_method="last_msg",
+            )
+            return result.summary or "No response generated."
+        except Exception as exc:
+            return f"Error during chatbot reasoning: {exc}"
 
 
 # 5. ENGINE
@@ -1356,6 +1980,103 @@ class DoxaEngineV26:
         self._set_config(yaml_str, source_kind="embedded", source_value="config_yaml")
         self.chatbot = DoxaChatbot(self)
 
+    def _expanded_agent_ids_from_config(self, config: dict) -> List[str]:
+        expanded_ids = []
+        for actor in config.get("actors", []):
+            replicas = actor.get("replicas", 1)
+            actor_id = actor.get("id")
+            if not actor_id:
+                continue
+            if replicas > 1:
+                expanded_ids.extend([f"{actor_id}_{index + 1}" for index in range(replicas)])
+            expanded_ids.append(actor_id)
+        return expanded_ids
+
+    def _collect_declared_resources(self, config: dict) -> set:
+        resources = set()
+        global_rules = config.get("global_rules", {})
+        for resource in global_rules.get("constraints", {}).keys():
+            resources.add(resource)
+        for operation in global_rules.get("operations", {}).values():
+            resources.update(operation.get("input", {}).keys())
+            resources.update(operation.get("output", {}).keys())
+            resources.update(operation.get("target_impact", {}).keys())
+        for actor in config.get("actors", []):
+            resources.update(actor.get("initial_portfolio", {}).keys())
+            resources.update(actor.get("constraints", {}).keys())
+            for operation in actor.get("operations", {}).values():
+                resources.update(operation.get("input", {}).keys())
+                resources.update(operation.get("output", {}).keys())
+                resources.update(operation.get("target_impact", {}).keys())
+        return resources
+
+    def _validate_constraint_block(self, block: dict, context: str):
+        if not isinstance(block, dict):
+            raise ValueError(f"{context} must be a mapping.")
+        for resource_name, bounds in block.items():
+            if not isinstance(bounds, dict):
+                raise ValueError(f"{context}.{resource_name} must be a mapping.")
+            min_value = bounds.get("min", float("-inf"))
+            max_value = bounds.get("max", float("inf"))
+            if not isinstance(min_value, (int, float)) or not isinstance(max_value, (int, float)):
+                raise ValueError(f"{context}.{resource_name} min/max must be numeric.")
+            if min_value > max_value:
+                raise ValueError(f"{context}.{resource_name} has inconsistent bounds: min > max.")
+
+    def _validate_operation_block(self, block: dict, context: str):
+        if not isinstance(block, dict):
+            raise ValueError(f"{context} must be a mapping.")
+        for op_name, op_def in block.items():
+            if not isinstance(op_def, dict):
+                raise ValueError(f"{context}.{op_name} must be a mapping.")
+            for key in ("input", "output", "target_impact"):
+                resource_map = op_def.get(key, {})
+                if resource_map is None:
+                    continue
+                if not isinstance(resource_map, dict):
+                    raise ValueError(f"{context}.{op_name}.{key} must be a mapping.")
+                for resource_name, amount in resource_map.items():
+                    if not isinstance(amount, (int, float)):
+                        raise ValueError(f"{context}.{op_name}.{key}.{resource_name} must be numeric.")
+                    if key in ("input", "output") and amount < 0:
+                        raise ValueError(f"{context}.{op_name}.{key}.{resource_name} must be >= 0.")
+
+    def _validate_condition_block(
+        self,
+        condition: dict,
+        known_resources: set,
+        context: str,
+        *,
+        require_operator: bool = True,
+        default_operator: Optional[str] = None,
+    ):
+        if not isinstance(condition, dict):
+            raise ValueError(f"{context} condition must be a mapping.")
+        resource_name = condition.get("resource")
+        operator = condition.get("operator", default_operator)
+        threshold = condition.get("threshold")
+        if resource_name not in known_resources:
+            raise ValueError(f"{context} references unknown resource '{resource_name}'.")
+        if require_operator and operator not in {"lt", "gt", "le", "ge", "eq"}:
+            raise ValueError(f"{context} has unsupported operator '{operator}'.")
+        if not isinstance(threshold, (int, float)):
+            raise ValueError(f"{context} threshold must be numeric.")
+
+    def _resource_can_grow(self, config: dict, resource_name: str) -> bool:
+        global_rules = config.get("global_rules", {})
+        for operation in global_rules.get("operations", {}).values():
+            if operation.get("output", {}).get(resource_name, 0) > 0:
+                return True
+        for actor in config.get("actors", []):
+            for operation in actor.get("operations", {}).values():
+                if operation.get("output", {}).get(resource_name, 0) > 0:
+                    return True
+        for event in config.get("world_events", []):
+            effect = event.get("effect", {})
+            if effect.get("resource") == resource_name and ((effect.get("delta") or 0) > 0 or (effect.get("rate") or 0) > 0):
+                return True
+        return False
+
     def _validate_config_dict(self, config: dict):
         if not isinstance(config, dict):
             raise ValueError("YAML root must be a mapping.")
@@ -1363,6 +2084,9 @@ class DoxaEngineV26:
             raise ValueError("Config must define a non-empty 'actors' list.")
         if "global_rules" not in config or not isinstance(config["global_rules"], dict):
             raise ValueError("Config must define 'global_rules' as a mapping.")
+        global_rules = config["global_rules"]
+        known_agent_ids = set(self._expanded_agent_ids_from_config(config))
+        actor_base_ids = set()
         for actor in config["actors"]:
             if not isinstance(actor, dict):
                 raise ValueError("Each actor must be a mapping.")
@@ -1370,6 +2094,140 @@ class DoxaEngineV26:
                 raise ValueError("Each actor must define an 'id'.")
             if "initial_portfolio" not in actor or not isinstance(actor["initial_portfolio"], dict):
                 raise ValueError(f"Actor '{actor.get('id', '<unknown>')}' must define 'initial_portfolio'.")
+            if actor["id"] in actor_base_ids:
+                raise ValueError(f"Duplicate actor id '{actor['id']}'.")
+            actor_base_ids.add(actor["id"])
+            if actor.get("trading_mode", "otc") not in {"otc", "lob", "both"}:
+                raise ValueError(f"Actor '{actor['id']}' has invalid trading_mode '{actor.get('trading_mode')}'.")
+            econ_cfg = actor.get("economics")
+            if econ_cfg is not None:
+                if not isinstance(econ_cfg, dict):
+                    raise ValueError(f"Actor '{actor['id']}'.economics must be a mapping.")
+                if econ_cfg.get("utility", "linear") not in {"linear", "crra", "cara"}:
+                    raise ValueError(f"Actor '{actor['id']}'.economics.utility must be linear | crra | cara.")
+                _ra = econ_cfg.get("risk_aversion", 0.0)
+                if not isinstance(_ra, (int, float)) or _ra < 0:
+                    raise ValueError(f"Actor '{actor['id']}'.economics.risk_aversion must be >= 0.")
+                _df = econ_cfg.get("discount_factor", 0.95)
+                if not isinstance(_df, (int, float)) or not (0 < _df <= 1):
+                    raise ValueError(f"Actor '{actor['id']}'.economics.discount_factor must be in (0, 1].")
+            self._validate_constraint_block(actor.get("constraints", {}), f"actors.{actor['id']}.constraints")
+            self._validate_operation_block(actor.get("operations", {}), f"actors.{actor['id']}.operations")
+
+        known_resources = self._collect_declared_resources(config)
+        self._validate_constraint_block(global_rules.get("constraints", {}), "global_rules.constraints")
+        self._validate_operation_block(global_rules.get("operations", {}), "global_rules.operations")
+
+        for condition in global_rules.get("kill_conditions", []):
+            self._validate_condition_block(
+                condition,
+                known_resources,
+                "global_rules.kill_conditions",
+                require_operator=False,
+                default_operator="le",
+            )
+        for condition in global_rules.get("victory_conditions", []):
+            self._validate_condition_block(
+                condition,
+                known_resources,
+                "global_rules.victory_conditions",
+                require_operator=False,
+                default_operator="ge",
+            )
+
+        for relation in global_rules.get("relations", []):
+            if not isinstance(relation, dict):
+                raise ValueError("global_rules.relations entries must be mappings.")
+            if relation.get("source") not in known_agent_ids or relation.get("target") not in known_agent_ids:
+                raise ValueError(f"Relation references unknown agent(s): {relation}")
+            trust = relation.get("trust", 0.5)
+            if not isinstance(trust, (int, float)) or trust < 0 or trust > 1:
+                raise ValueError(f"Relation trust must be in [0, 1]: {relation}")
+
+        seen_markets = set()
+        for market in global_rules.get("markets", []):
+            if not isinstance(market, dict):
+                raise ValueError("global_rules.markets entries must be mappings.")
+            resource_name = market.get("resource")
+            currency_name = market.get("currency")
+            if not resource_name or not currency_name:
+                raise ValueError(f"Market must define resource and currency: {market}")
+            if resource_name in seen_markets:
+                raise ValueError(f"Duplicate market resource '{resource_name}'.")
+            seen_markets.add(resource_name)
+            if resource_name not in known_resources or currency_name not in known_resources:
+                raise ValueError(f"Market '{resource_name}/{currency_name}' references undeclared resources.")
+            initial_price = market.get("initial_price", 1.0)
+            min_price = market.get("min_price", 0)
+            max_price = market.get("max_price", float("inf"))
+            if not all(isinstance(value, (int, float)) for value in (initial_price, min_price, max_price)):
+                raise ValueError(f"Market '{resource_name}' price bounds must be numeric.")
+            if min_price > max_price or not (min_price <= initial_price <= max_price):
+                raise ValueError(f"Market '{resource_name}' has inconsistent price bounds.")
+            if market.get("clearing", "per_step") not in {"per_step", "on_order", "call_auction"}:
+                raise ValueError(f"Market '{resource_name}' has invalid clearing mode '{market.get('clearing')}'.")
+            if market.get("execution_price_policy", "resting") not in {"resting", "midpoint", "aggressive"}:
+                raise ValueError(f"Market '{resource_name}' has invalid execution_price_policy '{market.get('execution_price_policy')}'.")
+            for _nk in ("impact_factor", "market_order_slip"):
+                _v = market.get(_nk)
+                if _v is not None and (not isinstance(_v, (int, float)) or float(_v) < 0):
+                    raise ValueError(f"Market '{resource_name}'.{_nk} must be a non-negative number.")
+            mm_cfg = market.get("market_maker")
+            if mm_cfg is not None:
+                if not isinstance(mm_cfg, dict):
+                    raise ValueError(f"Market '{resource_name}'.market_maker must be a mapping.")
+                for _mk in ("spread", "depth", "inventory_limit", "inventory_skew"):
+                    _v = mm_cfg.get(_mk)
+                    if _v is not None and (not isinstance(_v, (int, float)) or float(_v) < 0):
+                        raise ValueError(f"Market '{resource_name}'.market_maker.{_mk} must be a non-negative number.")
+
+        for event in config.get("world_events", []):
+            if not isinstance(event, dict) or not event.get("name"):
+                raise ValueError("world_events entries must be mappings with a name.")
+            event_type = event.get("type", "shock")
+            if event_type not in {"shock", "trend", "conditional"}:
+                raise ValueError(f"World event '{event.get('name')}' has unsupported type '{event_type}'.")
+            if event_type == "trend" and (not isinstance(event.get("duration", 1), int) or event.get("duration", 1) <= 0):
+                raise ValueError(f"World event '{event.get('name')}' must have duration > 0.")
+            trigger = event.get("trigger", {})
+            if "condition" in trigger:
+                self._validate_condition_block(trigger["condition"], known_resources, f"world_events.{event['name']}")
+            effect = event.get("effect", {})
+            targets = effect.get("targets", "all")
+            if isinstance(targets, list) and any(target not in known_agent_ids for target in targets):
+                raise ValueError(f"World event '{event['name']}' targets unknown agent(s): {targets}")
+            if isinstance(targets, str) and targets != "all" and targets not in known_agent_ids:
+                raise ValueError(f"World event '{event['name']}' targets unknown agent '{targets}'.")
+            if effect.get("resource") and effect["resource"] not in known_resources:
+                raise ValueError(f"World event '{event['name']}' references unknown resource '{effect['resource']}'.")
+            if effect.get("market") and effect["market"] not in seen_markets:
+                raise ValueError(f"World event '{event['name']}' references unknown market '{effect['market']}'.")
+            if effect.get("trust_source") and effect["trust_source"] not in known_agent_ids:
+                raise ValueError(f"World event '{event['name']}' references unknown trust_source '{effect['trust_source']}'.")
+
+        initial_totals = {}
+        initial_individual_max = {}
+        for actor in config["actors"]:
+            replicas = actor.get("replicas", 1)
+            for resource_name, amount in actor["initial_portfolio"].items():
+                initial_totals[resource_name] = initial_totals.get(resource_name, 0) + (amount * replicas)
+                initial_individual_max[resource_name] = max(initial_individual_max.get(resource_name, float("-inf")), amount)
+        all_victory_conditions = list(global_rules.get("victory_conditions", []))
+        for actor in config["actors"]:
+            all_victory_conditions.extend(actor.get("victory_conditions", []))
+        for condition in all_victory_conditions:
+            resource_name = condition.get("resource")
+            threshold = condition.get("threshold")
+            scope = condition.get("scope", "global")
+            if not isinstance(threshold, (int, float)):
+                raise ValueError(f"Victory condition threshold must be numeric: {condition}")
+            if resource_name not in known_resources:
+                raise ValueError(f"Victory condition references unknown resource '{resource_name}'.")
+            if not self._resource_can_grow(config, resource_name):
+                if scope == "individual" and initial_individual_max.get(resource_name, float("-inf")) < threshold:
+                    raise ValueError(f"Victory condition is infeasible without a producer for '{resource_name}': {condition}")
+                if scope != "individual" and initial_totals.get(resource_name, 0) < threshold:
+                    raise ValueError(f"Victory condition is infeasible without a producer for '{resource_name}': {condition}")
 
     def _set_config(self, yaml_text: str, source_kind: str = "text", source_value: str = "runtime"):
         parsed = yaml.safe_load(yaml_text) or {}
@@ -1591,6 +2449,7 @@ class DoxaEngineV26:
             "status": self.get_status(),
             "markets": self.get_markets(),
             "relations": self.get_relations(),
+            "macro": self.get_macro_metrics(),
         }
 
     def stop_current_run(self, wait: bool = True):
@@ -1675,6 +2534,8 @@ class DoxaEngineV26:
         self._step_agent(selected_agent)
         self._run_market_clearing()
         self._run_world_events()
+        self._update_price_expectations()
+        self._run_macro_step()
         self.record_snapshot("manual_step", selected_agent)
         return self.get_status()
 
@@ -1700,6 +2561,21 @@ class DoxaEngineV26:
             if panic_decay and "panic" in self.env.portfolios[agent_id]:
                 current_panic = self.env.portfolios[agent_id]["panic"]
                 self.env.portfolios[agent_id]["panic"] = max(0.0, current_panic - panic_decay)
+            # Portfolio distress → panic feedback
+            distress_rate = rel_dyn.get("portfolio_distress_panic_rate", 0.0)
+            if distress_rate > 0.0 and self.resource_history:
+                prev_snap = self.resource_history[-1]
+                if agent_id in prev_snap.get("agents", {}):
+                    prev_port = prev_snap["agents"][agent_id]
+                    prev_total = sum(max(0.0, v) for v in prev_port.values() if isinstance(v, (int, float)))
+                    curr_total = sum(max(0.0, self.env.portfolios[agent_id].get(r, 0)) for r in prev_port)
+                    if prev_total > 0:
+                        drop = (prev_total - curr_total) / prev_total
+                        if drop > 0:
+                            self.env.portfolios[agent_id]["panic"] = (
+                                self.env.portfolios[agent_id].get("panic", 0.0)
+                                + drop * distress_rate
+                            )
             kill_conds = self.global_rules.get("kill_conditions", []) + self.env.agents[agent_id].config.get("kill_conditions", [])
             for cond in kill_conds:
                 resource_name = cond["resource"]
@@ -1917,10 +2793,13 @@ class DoxaEngineV26:
                         with ThreadPoolExecutor() as executor:
                             executor.map(self._step_agent, active_ids)
                         self.record_snapshot("step_complete")
-                    # Market clearing (per_step markets)
+                    # Market clearing (per_step / call_auction markets)
                     self._run_market_clearing()
                     # World events
                     self._run_world_events()
+                    # Price expectations + macro metrics
+                    self._update_price_expectations()
+                    self._run_macro_step()
                 for agent_id in list(self.env.agents.keys()):
                     self.check_victory_conditions(agent_id)
             with self._state_lock:
@@ -1938,32 +2817,56 @@ class DoxaEngineV26:
                 self._stop_event.clear()
                 self._pause_event.set()
 
+    def _is_transient_llm_error(self, message: str) -> bool:
+        lowered = message.lower()
+        uppered = message.upper()
+        return (
+            "503" in message
+            or "429" in message
+            or "UNAVAILABLE" in uppered
+            or "high demand" in lowered
+            or "rate limit" in lowered
+            or "timeout" in lowered
+            or "temporarily unavailable" in lowered
+        )
+
+    def _generate_reply_with_retry(self, agent, a_id: str, max_attempts: int = 3, base_delay: float = 0.4):
+        messages = agent.chat_messages[agent] + [{"role": "user", "content": "Your turn."}]
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return agent.generate_reply(messages=messages)
+            except Exception as exc:
+                message = str(exc)
+                if not self._is_transient_llm_error(message):
+                    raise
+                last_attempt = attempt == max_attempts
+                notice = (
+                    f"FAILED: transient LLM error for {a_id} after {attempt} attempts: {message}"
+                    if last_attempt
+                    else f"RETRY {attempt}/{max_attempts}: transient LLM error for {a_id}: {message}"
+                )
+                if self.log:
+                    self.log.print_action(a_id, "llm_generate_reply", None, notice)
+                self.record_event({
+                    "type": "llm_transient_error",
+                    "agent": a_id,
+                    "attempt": attempt,
+                    "text": notice,
+                })
+                if last_attempt:
+                    return None
+                time.sleep(base_delay * (2 ** (attempt - 1)))
+        return None
+
     def _step_agent(self, a_id):
         if a_id not in self.env.agents:
             return
         if self.log:
             self.log.print_turn(a_id)
         agent = self.env.agents[a_id]
-        try:
-            reply = agent.generate_reply(messages=agent.chat_messages[agent] + [{"role": "user", "content": "Your turn."}])
-        except Exception as exc:
-            message = str(exc)
-            transient_llm_error = (
-                "503" in message
-                or "UNAVAILABLE" in message.upper()
-                or "high demand" in message.lower()
-            )
-            if transient_llm_error:
-                notice = f"SKIPPED: transient LLM error for {a_id}: {message}"
-                if self.log:
-                    self.log.print_action(a_id, "llm_generate_reply", None, notice)
-                self.record_event({
-                    "type": "llm_transient_error",
-                    "agent": a_id,
-                    "text": notice,
-                })
-                return
-            raise
+        reply = self._generate_reply_with_retry(agent, a_id)
+        if reply is None:
+            return
         if isinstance(reply, dict) and "tool_calls" in reply:
             for tc in reply["tool_calls"]:
                 try:
@@ -1991,7 +2894,19 @@ class DoxaEngineV26:
                             continue
                     target = args.get('target')
                     multiplier = args.get('multiplier', args.get('inputMultiplier', 1))
-                    res = self.env.execute_operation(a_id, name, target, multiplier)
+                    function_name = ftc['name']
+                    function_ref = getattr(agent, function_name, None) or agent._function_map.get(function_name)
+                    if not function_ref and function_name != name:
+                        function_ref = getattr(agent, name, None) or agent._function_map.get(name)
+                    if function_ref:
+                        try:
+                            res = function_ref(**args) if args else function_ref()
+                        except TypeError as exc:
+                            res = f"FAILED: Invalid arguments for tool '{name}': {exc}"
+                        except Exception as exc:
+                            res = f"FAILED: Tool '{name}' raised exception: {exc}"
+                    else:
+                        res = self.env.execute_operation(a_id, name, target, multiplier)
                     if self.log:
                         self.log.print_action(a_id, f"op_{name}", target, res)
                 agent.send(str(res), agent, request_reply=False, silent=True)
@@ -2000,12 +2915,14 @@ class DoxaEngineV26:
         self.check_victory_conditions(a_id)
 
     def _run_market_clearing(self):
-        """Run per_step market clearing and record fill events."""
+        """Expire stale orders, re-quote market makers, then match for per_step and call_auction markets."""
         me = self.env.market_engine
         if not me:
             return
+        me.expire_orders(self.current_step, self.env.portfolios)
+        me.refresh_market_makers(self.env.portfolios, self.current_step)
         for resource, market in me.markets.items():
-            if market.config.get("clearing", "per_step") == "per_step":
+            if market.config.get("clearing", "per_step") in ("per_step", "call_auction"):
                 fills = me.clear_market(resource, self.env.portfolios, self.current_step)
                 for fill in fills:
                     self.record_event({"type": "market_fill", **fill})
@@ -2034,6 +2951,38 @@ class DoxaEngineV26:
             if self.log:
                 self.log.print(f"[WORLD EVENT] {ev_record['name']} ({ev_record['type']}): {ev_record.get('effects', [])}")
 
+    def _update_price_expectations(self):
+        """Update per-agent EWA price expectations from current market prices."""
+        me = self.env.market_engine
+        if not me:
+            return
+        econ_map = self.env.agent_economics_map
+        if not econ_map:
+            return
+        for resource, market in me.markets.items():
+            current_price = market.current_price
+            for agent_id, econ in econ_map.items():
+                lr = econ.learning_rate
+                prev = self.env.price_expectations.get(agent_id, {}).get(resource, current_price)
+                new_exp = round((1.0 - lr) * prev + lr * current_price, 8)
+                self.env.price_expectations.setdefault(agent_id, {})[resource] = new_exp
+
+    def _run_macro_step(self):
+        """Compute and record macro-level metrics (Gini, HHI, volatility, panic)."""
+        snap = self.env.macro_tracker.compute(
+            self.env.portfolios, self.env.market_engine, self.current_step
+        )
+        self.record_event({"type": "macro_snapshot", **snap})
+
+    def get_macro_metrics(self) -> Dict:
+        """Return the latest macro metrics snapshot."""
+        latest = self.env.macro_tracker.latest()
+        return latest or {"tick": self.current_step, "resources": {}, "market_stats": {}, "system_panic": 0.0}
+
+    def get_macro_history(self) -> List[Dict]:
+        """Return full macro metrics history."""
+        return list(self.env.macro_tracker.history)
+
     def get_markets(self) -> Dict:
         """Return market summary for API."""
         me = self.env.market_engine
@@ -2046,10 +2995,7 @@ class DoxaEngineV26:
         me = self.env.market_engine
         if not me:
             return None
-        m = me.markets.get(resource)
-        if not m:
-            return None
-        return {**m.top_of_book(depth), "resource": resource, "currency": m.currency}
+        return me.get_order_book(resource, depth)
 
     def get_market_price_history(self, resource: str) -> Optional[Dict]:
         """Return price history for a resource market."""
@@ -2090,50 +3036,99 @@ class DoxaEngineV26:
 # ==========================================
 # 5. CONFIG (Dilemma + Trade)
 # ==========================================
-config_yaml = """
-global_rules:
-    epochs: 1
-    steps: 10
-    execution_mode: 'sequential'
+config_yaml = yaml.safe_dump(
+    {
+        "global_rules": {
+            "epochs": 1,
+            "steps": 10,
+            "execution_mode": "sequential",
+            "maintenance": {"corn": 1},
+            "kill_conditions": [{"resource": "corn", "threshold": 0}],
+            "victory_conditions": [{"resource": "gold", "threshold": 60}],
+            "relation_dynamics": {
+                "on_trade_success": {"trust_delta": 0.03},
+                "on_trade_rejected": {"trust_delta": -0.02},
+                "on_broadcast": {"trust_delta": 0.01},
+                "trust_decay_rate": 0.01,
+                "panic_decay_rate": 0.05,
+            },
+            "relations": [
+                {"source": "player", "target": "miners", "trust": 0.6, "type": "neutral"},
+                {"source": "miners", "target": "player", "trust": 0.45, "type": "rival"},
+            ],
+            "markets": [
+                {
+                    "resource": "gold",
+                    "currency": "credits",
+                    "initial_price": 6.0,
+                    "min_price": 1.0,
+                    "max_price": 40.0,
+                    "clearing": "per_step",
+                }
+            ],
+        },
+        "world_events": [
+            {
+                "name": "gold_spike",
+                "type": "shock",
+                "trigger": {"tick": 4},
+                "effect": {"market": "gold", "price_multiplier": 1.4},
+            },
+            {
+                "name": "panic_wave",
+                "type": "trend",
+                "trigger": {"tick": 2},
+                "duration": 3,
+                "effect": {"targets": "all", "resource": "panic", "rate": 0.08},
+            },
+            {
+                "name": "food_relief",
+                "type": "conditional",
+                "trigger": {
+                    "condition": {
+                        "resource": "corn",
+                        "operator": "lt",
+                        "threshold": 6,
+                        "scope": "any_agent",
+                    }
+                },
+                "effect": {"targets": "all", "resource": "corn", "delta": 3},
+            },
+        ],
+        "actors": [
+            {
+                "id": "player",
+                "provider": "google",
+                "model_name": "gemini-2.5-pro",
+                "persona": "Farmer-trader. Sell gold only if price is attractive, keep panic low, and use both OTC and the exchange.",
+                "trading_mode": "both",
+                "initial_portfolio": {"credits": 120, "corn": 20, "gold": 8, "panic": 0.0},
+                "constraints": {
+                    "gold": {"min": 0},
+                    "corn": {"min": 0},
+                    "credits": {"min": 0},
+                    "panic": {"min": 0, "max": 1},
+                },
+                "operations": {"farm": {"input": {"gold": 1}, "output": {"corn": 4}}},
+            },
+            {
+                "id": "miners",
+                "provider": "google",
+                "model_name": "gemini-2.5-pro",
+                "persona": "Miner-merchant. Produce gold, arbitrate between OTC and the exchange, and watch trust carefully.",
+                "trading_mode": "both",
+                "initial_portfolio": {"credits": 120, "corn": 10, "gold": 20, "panic": 0.0},
+                "constraints": {
+                    "gold": {"min": 0},
+                    "corn": {"min": 0},
+                    "credits": {"min": 0},
+                    "panic": {"min": 0, "max": 1},
+                },
+                "operations": {"mine": {"input": {"corn": 2}, "output": {"gold": 5}}},
+            },
+        ],
+    },
+    sort_keys=False,
+)
 
-    maintenance: {corn: 1}
-
-    kill_conditions:
-    - {resource: 'corn', threshold: 0} 
-        
-    victory_conditions:
-    - {resource: 'gold', threshold: 100}  # threshold può essere 'min', 'max', 'count'
-
-actors:
-  - id: 'player'
-    replicas: 2
-    provider: 'google'
-    model_name: 'gemini-2.5-pro' #'qwen2.5:1.5b' #'llama3.1:8b'
-    persona: "Trade and collaborate"
-    initial_portfolio: {corn: 20, gold: 10}
-    constraints:
-      gold: {min: 0}
-      corn: {min: 0}
-    operations: 
-        farm:
-            input: {gold: 2}
-            output: {corn: 5}
-  - id: 'miners'
-    replicas: 2
-    provider: 'google'
-    model_name: 'gemini-2.5-pro' #'qwen2.5:1.5b' #'llama3.1:8b'
-    persona: "Trade and collaborate"
-    initial_portfolio: {gold: 20, corn: 10}
-    constraints:
-      gold: {min: 0}
-      corn: {min: 0}
-    operations: 
-        mine:
-            input: {corn: 2}
-            output: {gold: 5}
-    
-"""
-
-if __name__ == "__main__":
-    engine = DoxaEngineV26(config_yaml)
-    engine.run()
+print(config_yaml)
