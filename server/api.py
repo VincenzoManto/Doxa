@@ -1,12 +1,12 @@
 """
-REST API and WebSocket server for DoxaEngineV26 (engine.py)
+REST API and WebSocket server for DoxaEngine (engine.py)
 - Exposes all engine features via HTTP endpoints
 - Provides two WebSocket endpoints:
     1. /ws/agents: real-time agent actions, chat, and personal portfolios
     2. /ws/resources: real-time resource updates
 """
 """
-REST API and WebSocket server for DoxaEngineV26 (engine.py)
+REST API and WebSocket server for DoxaEngine (engine.py)
 - Exposes all engine features via HTTP endpoints
 - Provides two WebSocket endpoints:
     1. /ws/agents: real-time agent actions, chat, and personal portfolios
@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any, Optional
 
 from fastapi.responses import JSONResponse, Response
-from engine import DoxaEngineV26, config_yaml
+from engine.DoxaEngine import DoxaEngine, config_yaml
 
 app = FastAPI()
 
@@ -121,9 +121,8 @@ async def startup_event():
     _main_loop = asyncio.get_running_loop()
     asyncio.create_task(socket_worker())
 
-# --- Engine Instance ---
 socket_logger = SocketLogger()
-engine = DoxaEngineV26(config_yaml, logger=socket_logger)
+engine = DoxaEngine(config_yaml, logger=socket_logger)
 socket_logger.event_sink = engine.record_event
 
 

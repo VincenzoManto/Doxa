@@ -1,10 +1,10 @@
-Doxa è un sistema composto da un motore Python (DoxaEngineV26) e un server API che espone le funzionalità del motore tramite HTTP e WebSocket. La struttura principale è la seguente:
+Doxa è un sistema composto da un motore Python (DoxaEngine) e un server API che espone le funzionalità del motore tramite HTTP e WebSocket. La struttura principale è la seguente:
 
 - Il backend, scritto in Python, utilizza FastAPI per fornire un'API REST e due endpoint WebSocket:
   1. `/ws/agents`: per azioni in tempo reale degli agenti, chat e gestione dei portafogli personali.
   2. `/ws/resources`: per aggiornamenti in tempo reale sulle risorse.
 
-- Il cuore del sistema è il motore (DoxaEngineV26), che gestisce agenti (DoxaAgent) configurabili tramite YAML e dotati di una "persona", regole, capacità di ragionamento (RAG), e possibilità di essere leader di sottogruppi di agenti.
+- Il cuore del sistema è il motore (DoxaEngine), che gestisce agenti (DoxaAgent) configurabili tramite YAML e dotati di una "persona", regole, capacità di ragionamento (RAG), e possibilità di essere leader di sottogruppi di agenti.
 
 - Il motore implementa logging avanzato su console, gestione di memoria vettoriale (ChromaDB), e supporta l'integrazione con modelli di AI (ad esempio, tramite autogen, vertexai, google-genai).
 
