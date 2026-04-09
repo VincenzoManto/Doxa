@@ -339,6 +339,12 @@ h1,h2,h3,h4,h5,h6 {
   gap: 1rem;
 }
 
+.top-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
 .relation-wrapper {
   margin-top: 1rem;
 }
@@ -363,6 +369,110 @@ h1,h2,h3,h4,h5,h6 {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.market-panel {
+  min-height: 320px;
+}
+
+.market-selector-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.market-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 150px;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid #dde5ed;
+  border-radius: 12px;
+  background: #f7f9fb;
+  color: #1d2d3a;
+}
+
+.market-chip-active {
+  border-color: #d97731;
+  background: #fff3e8;
+}
+
+.market-price-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.market-price-card {
+  background: #f7f9fb;
+  border: 1px solid #dde5ed;
+  border-radius: 12px;
+  padding: 0.8rem;
+}
+
+.market-price-card span {
+  display: block;
+  color: #6b8194;
+  font-size: 0.74rem;
+  margin-bottom: 0.35rem;
+}
+
+.orderbook-shell {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.orderbook-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.orderbook-head,
+.orderbook-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+}
+
+.orderbook-head {
+  border: 1px solid #dde5ed;
+  background: #eef3f8;
+  color: #5a7085;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+}
+
+.orderbook-row-bid {
+  border: 1px solid #cfe8d6;
+  background: #edf8f0;
+  color: #1a6e3f;
+}
+
+.orderbook-row-ask {
+  border: 1px solid #f0d0c9;
+  background: #fff1ed;
+  color: #a04020;
+}
+
+.orderbook-row-empty {
+  border: 1px dashed #dde5ed;
+  background: #fbfcfd;
+}
+
+.orderbook-empty {
+  grid-column: 1 / -1;
+  color: #8a9eb0;
+  text-align: center;
 }
 
 .relation-controls {
@@ -663,6 +773,92 @@ h1,h2,h3,h4,h5,h6 {
   gap: 0.8rem;
 }
 
+/* ── Macro panel ──────────────────────────────────────────────────────────── */
+.macro-panel {
+  min-height: 0;
+}
+
+.macro-tick {
+  font-size: 0.72rem;
+  color: #8a9eb0;
+  font-family: Consolas, monospace;
+  white-space: nowrap;
+}
+
+.macro-panic-row {
+  display: grid;
+  grid-template-columns: 70px 1fr 48px;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 10px;
+  font-size: 0.78rem;
+  color: #5a7085;
+}
+
+.macro-bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: #eef1f5;
+  overflow: hidden;
+}
+
+.macro-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease, background 0.4s ease;
+}
+
+.macro-section-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: #8a9eb0;
+  margin: 8px 0 4px;
+}
+
+.macro-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 0.55rem;
+  margin-bottom: 4px;
+}
+
+.macro-stat-card {
+  background: #f7f9fb;
+  border: 1px solid #dde5ed;
+  border-radius: 12px;
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.macro-stat-name {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #2060a0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 2px;
+}
+
+.macro-stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.74rem;
+  color: #5a7085;
+}
+
+.macro-stat-row strong {
+  color: #1d2d3a;
+  font-family: Consolas, monospace;
+}
+
+.macro-warn {
+  color: #b84320 !important;
+}
+
 .kb-doc-fulltext {
   margin: 0;
   max-height: 320px;
@@ -683,6 +879,100 @@ h1,h2,h3,h4,h5,h6 {
   .top-grid,
   .bottom-grid,
   .modal-grid {
+    grid-template-columns: 1fr;
+
+  /* ── Chatbot panel ──────────────────────────────────────────────────────────── */
+  .chatbot-panel {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .chatbot-messages {
+    overflow-y: auto;
+    min-height: 140px;
+    max-height: 300px;
+    padding: 4px 0 8px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .chatbot-msg {
+    padding: 8px 12px;
+    border-radius: 8px;
+    max-width: 90%;
+    word-break: break-word;
+  }
+
+  .chatbot-msg-user {
+    background: #dbeafe;
+    align-self: flex-end;
+  }
+
+  .chatbot-msg-assistant {
+    background: #f3f5f7;
+    align-self: flex-start;
+  }
+
+  .chatbot-msg-label {
+    display: block;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #5a7085;
+    margin-bottom: 3px;
+  }
+
+  .chatbot-msg-text {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+
+  .chatbot-typing {
+    margin: 0;
+    font-size: 13px;
+    color: #8aa0b4;
+    font-style: italic;
+  }
+
+  .chatbot-input-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .chatbot-input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #dde5ed;
+    border-radius: 6px;
+    background: #f8fafb;
+    font-size: 13px;
+    color: #1d2d3a;
+    outline: none;
+  }
+
+  .chatbot-input:focus {
+    border-color: #3b82f6;
+    background: #fff;
+  }
+
+  .chatbot-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .chatbot-send-btn {
+    padding: 8px 12px !important;
+    flex-shrink: 0;
+  }
+  }
+
+  .orderbook-shell,
+  .market-price-strip {
     grid-template-columns: 1fr;
   }
 

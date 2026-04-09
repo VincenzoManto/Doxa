@@ -1,28 +1,18 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
-import * as echarts from 'echarts';
-import { Activity, Archive, Download, FileCode2, Pause, Play, RotateCcw, ShieldAlert, SkipForward, Upload, X } from 'lucide-react';
 import './App.css';
-import { connectEvents, downloadExportZip, getAgent, getAgentMemory, getAgentTimeline, getAgents, getConfig, getEvents, getGlobalTimeline, getStatus, godmode, loadConfigPath, pauseSimulation, resetSimulation, restartSimulation, resumeSimulation, runSimulation, stepAgent, type AgentDetails, type AgentMemoryGraph, type AgentSummary, type SimulationStatus, type TimelinePoint, updateConfig, validateConfig } from './api';
-
-type LiveEvent = {
-  type: string;
-  agent?: string;
-  target?: string;
-  text?: string;
-  thought?: string;
-  action?: string;
-  result?: unknown;
-  epoch?: number;
-  step?: number;
-  state?: string;
-  reason?: string;
-  timestamp?: number;
-  give?: { resource: string; qty: number };
-  take?: { resource: string; qty: number };
-};
-
-type ChartMode = 'instant' | 'cumulative';
-type ConnectionState = 'connecting' | 'live' | 'reconnecting' | 'offline';
+import { Activity, Archive, Download, FileCode2, Pause, Play, RotateCcw, ShieldAlert, SkipForward, Upload, X } from 'lucide-react';
+import { connectEvents, downloadExportZip, getAgent, getAgentMemory, getAgentTimeline, getAgents, getConfig, getEvents, getGlobalTimeline, getMacroMetrics, getMarketOrderBook, getMarkets, getStatus, godmode, loadConfigPath, pauseSimulation, resetSimulation, restartSimulation, resumeSimulation, runSimulation, stepAgent, updateConfig, validateConfig } from './api';
+import type { AgentDetails, AgentMemoryGraph, AgentSummary, ChartMode, ConnectionState, LiveEvent, MacroMetrics, MarketOrderBook, MarketSummary, SimulationStatus, TimelinePoint } from './types';
+import { sameEvents, sameMacro, sameMarketMap, sameOrderBook, sameAgentSummaries, sameStatus, sameTimeline, STATUS_COLORS, collectMetrics, decimateTimeline } from './utils';
+import { VirtualScroll } from './components/VirtualScroll';
+import { TimelineChart } from './components/TimelineChart';
+import { AgentNetworkGraph } from './components/AgentNetworkGraph';
+import { MarketDepthPanel } from './components/MarketDepthPanel';
+import { MacroPanel } from './components/MacroPanel';
+import { EventLine } from './components/Events';
+import { ChatbotPanel } from './components/ChatbotPanel';
+import { ResourceRelationChart } from './components/ResourceRelationChart';
+import { KnowledgeGraph } from './components/KnowledgeGraph';
 
 // Maximum events kept in the client ring buffer
 const MAX_EVENTS = 2000;
@@ -35,860 +25,15 @@ const AGENT_ROW_HEIGHT = 54;
 const EVENT_LOG_VISIBLE_HEIGHT = 420;
 const AGENT_LIST_VISIBLE_HEIGHT = 380;
 
-// Decimate a timeline to at most maxPoints, always keeping first and last
-function decimateTimeline(points: TimelinePoint[], maxPoints: number): TimelinePoint[] {
-  if (points.length <= maxPoints) return points;
-  const step = Math.ceil(points.length / maxPoints);
-  return points.filter((_, i) => i % step === 0 || i === points.length - 1);
-}
-
-const STATUS_COLORS: Record<string, string> = {
-  idle: 'status-idle',
-  running: 'status-running',
-  paused: 'status-paused',
-  completed: 'status-completed',
-  errored: 'status-errored',
-};
-
-function formatTimestamp(timestamp?: number) {
-  if (!timestamp) {
-    return '--:--:--';
-  }
-  return new Date(timestamp * 1000).toLocaleTimeString();
-}
-
-function pointLabel(point: TimelinePoint) {
-  return `E${point.epoch ?? 0} · S${point.step ?? 0}`;
-}
-
-function collectMetrics(points: TimelinePoint[], selector: (point: TimelinePoint) => Record<string, number> | undefined) {
-  const metricSet = new Set<string>();
-  for (const point of points) {
-    const values = selector(point) ?? {};
-    for (const metric of Object.keys(values)) {
-      metricSet.add(metric);
-    }
-  }
-  return Array.from(metricSet).sort();
-}
-
-function toTotalBarSeries(points: TimelinePoint[], metrics: string[], mode: ChartMode, selector: (point: TimelinePoint) => Record<string, number> | undefined) {
-  const accumulator: Record<string, number> = {};
-  return metrics.map((metric) => ({
-    id: `total:${metric}`,
-    name: `${metric}`,
-    type: 'bar',
-    barMaxWidth: 20,
-    itemStyle: { opacity: 0.55, borderRadius: [3, 3, 0, 0] },
-    emphasis: { focus: 'series' },
-    data: points.map((point) => {
-      const raw = selector(point)?.[metric] ?? 0;
-      if (mode === 'cumulative') {
-        accumulator[metric] = (accumulator[metric] ?? 0) + raw;
-        return accumulator[metric];
-      }
-      return raw;
-    }),
-  }));
-}
-
-function toAgentChartSeries(points: TimelinePoint[], activeResources: string[], mode: ChartMode) {
-  const agentResources = new Map<string, Set<string>>();
-  for (const point of points) {
-    for (const [agentId, portfolio] of Object.entries((point.agents as Record<string, Record<string, number>>) ?? {})) {
-      if (!agentResources.has(agentId)) agentResources.set(agentId, new Set());
-      for (const resource of Object.keys(portfolio)) {
-        if (activeResources.length === 0 || activeResources.includes(resource)) {
-          agentResources.get(agentId)!.add(resource);
-        }
-      }
-    }
-  }
-  const series: Array<Record<string, unknown>> = [];
-  const accumulator: Record<string, number> = {};
-  for (const [agentId, resources] of Array.from(agentResources.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
-    for (const resource of Array.from(resources).sort()) {
-      const key = `${agentId} \u00b7 ${resource}`;
-      series.push({
-        id: `agent:${key}`,
-        name: key,
-        type: 'line',
-        smooth: true,
-        showSymbol: false,
-        emphasis: { focus: 'series' },
-        data: points.map((point) => {
-          const raw = (point.agents as Record<string, Record<string, number>> | undefined)?.[agentId]?.[resource] ?? 0;
-          if (mode === 'cumulative') {
-            accumulator[key] = (accumulator[key] ?? 0) + raw;
-            return accumulator[key];
-          }
-          return raw;
-        }),
-      });
-    }
-  }
-  return series;
-}
-
-const CHART_EVENT_COLORS: Record<string, string> = {
-  trade: '#d97731',
-  action: '#2e8b57',
-  communication: '#2060a0',
-  kill: '#b42318',
-  victory: '#7a3fb0',
-};
-
-function findTimelineEventIndex(points: TimelinePoint[], event: LiveEvent) {
-  const exactIndex = points.findIndex((point) => point.epoch === event.epoch && point.step === event.step);
-  if (exactIndex >= 0) {
-    return exactIndex;
-  }
-  if (!event.timestamp) {
-    return -1;
-  }
-  let bestIndex = -1;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (let index = 0; index < points.length; index += 1) {
-    const point = points[index];
-    const distance = Math.abs((point.timestamp ?? 0) - event.timestamp);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      bestIndex = index;
-    }
-  }
-  return bestIndex;
-}
-
-function sameStatus(left: SimulationStatus | null, right: SimulationStatus) {
-  if (!left) {
-    return false;
-  }
-  return left.state === right.state && left.run_id === right.run_id && left.epoch === right.epoch && left.step === right.step && left.last_error === right.last_error && left.agent_count === right.agent_count;
-}
-
-function sameAgentSummaries(left: AgentSummary[], right: AgentSummary[]) {
-  if (left.length !== right.length) {
-    return false;
-  }
-  return left.every((agent, index) => agent.id === right[index]?.id && agent.alive === right[index]?.alive);
-}
-
-function sameTimeline(left: TimelinePoint[], right: TimelinePoint[]) {
-  if (left === right) {
-    return true;
-  }
-  if (left.length !== right.length) {
-    return false;
-  }
-  const lastLeft = left[left.length - 1];
-  const lastRight = right[right.length - 1];
-  if (!lastLeft && !lastRight) {
-    return true;
-  }
-  return lastLeft?.timestamp === lastRight?.timestamp && lastLeft?.epoch === lastRight?.epoch && lastLeft?.step === lastRight?.step && JSON.stringify(lastLeft?.totals ?? lastLeft?.resources ?? {}) === JSON.stringify(lastRight?.totals ?? lastRight?.resources ?? {});
-}
-
-function sameEvents(left: LiveEvent[], right: LiveEvent[]) {
-  if (left === right) {
-    return true;
-  }
-  if (left.length !== right.length) {
-    return false;
-  }
-  const leftHead = left[0];
-  const rightHead = right[0];
-  const leftTail = left[left.length - 1];
-  const rightTail = right[right.length - 1];
-  return leftHead?.timestamp === rightHead?.timestamp && leftHead?.type === rightHead?.type && leftTail?.timestamp === rightTail?.timestamp && leftTail?.type === rightTail?.type;
-}
-
-// ---------------------------------------------------------------------------
-// Generic VirtualScroll — renders only the rows in the visible viewport.
-// itemHeight must be fixed and include any gap/margin between items.
-// ---------------------------------------------------------------------------
-function VirtualScroll<T>({ items, itemHeight, visibleHeight, renderItem, className, autoScrollBottom = false }: { items: T[]; itemHeight: number; visibleHeight: number; renderItem: (item: T, index: number) => React.ReactNode; className?: string; autoScrollBottom?: boolean }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-
-  // Auto-scroll to bottom when new items arrive (opt-in)
-  useEffect(() => {
-    if (!autoScrollBottom || !containerRef.current) return;
-    const el = containerRef.current;
-    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < itemHeight * 2;
-    if (isAtBottom) el.scrollTop = el.scrollHeight;
-  }, [items.length, autoScrollBottom, itemHeight]);
-
-  const totalHeight = items.length * itemHeight;
-  const overscan = 4;
-  const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan);
-  const endIndex = Math.min(items.length - 1, Math.ceil((scrollTop + visibleHeight) / itemHeight) + overscan);
-  const visibleItems = items.slice(startIndex, endIndex + 1);
-
-  return (
-    <div ref={containerRef} className={className} style={{ height: visibleHeight, overflowY: 'auto', position: 'relative' }} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
-      <div style={{ height: totalHeight, position: 'relative' }}>
-        {visibleItems.map((item, i) => (
-          <div key={startIndex + i} style={{ position: 'absolute', top: (startIndex + i) * itemHeight, left: 0, right: 0, height: itemHeight, padding: '0 0 8px 0', boxSizing: 'border-box' }}>
-            {renderItem(item, startIndex + i)}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function TimelineChart({ title, subtitle, points, metrics, mode, selector, viewMode = 'totals', events = [], scopeAgent = null }: { title: string; subtitle: string; points: TimelinePoint[]; metrics: string[]; mode: ChartMode; selector: (point: TimelinePoint) => Record<string, number> | undefined; viewMode?: 'totals' | 'agents'; events?: LiveEvent[]; scopeAgent?: string | null }) {
-  const chartRef = useRef<HTMLDivElement | null>(null);
-  const chartInstanceRef = useRef<echarts.ECharts | null>(null);
-
-  useEffect(() => {
-    if (!chartRef.current) {
-      return;
-    }
-    if (!chartInstanceRef.current) {
-      chartInstanceRef.current = echarts.init(chartRef.current);
-    }
-    const chart = chartInstanceRef.current;
-    chart.setOption(
-      {
-        animationDuration: 250,
-        backgroundColor: 'transparent',
-        tooltip: {
-          trigger: 'axis',
-          backgroundColor: '#ffffff',
-          borderColor: '#dde5ed',
-          textStyle: { color: '#1d2d3a' },
-        },
-        legend: {
-          top: 4,
-          textStyle: { color: '#5a7085' },
-        },
-        grid: {
-          left: 16,
-          right: 16,
-          top: 54,
-          bottom: 44,
-          containLabel: true,
-        },
-        dataZoom: [
-          { type: 'inside', throttle: 50 },
-          { type: 'slider', height: 18, bottom: 8 },
-        ],
-        xAxis: {
-          type: 'category',
-          boundaryGap: true,
-          axisLabel: { color: '#5a7085' },
-          axisLine: { lineStyle: { color: '#dde5ed' } },
-        },
-        yAxis: [
-          {
-            type: 'value',
-            axisLabel: { color: '#5a7085' },
-            splitLine: { lineStyle: { color: 'rgba(0,0,0,0.07)' } },
-          },
-        ],
-      },
-      { notMerge: false, lazyUpdate: true },
-    );
-    const resizeObserver = new ResizeObserver(() => chart.resize());
-    resizeObserver.observe(chartRef.current);
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, []);
-
-  useEffect(() => {
-    const chart = chartInstanceRef.current;
-    if (!chart) {
-      return;
-    }
-    const xAxisData = points.map(pointLabel);
-    const barSeries = toTotalBarSeries(points, metrics, mode, selector);
-    const series = viewMode === 'agents' ? [...barSeries, ...toAgentChartSeries(points, metrics, mode)] : barSeries;
-    const previousLegend = chart.getOption()?.legend as Array<{ selected?: Record<string, boolean> }> | undefined;
-    const previousLegendSelected = previousLegend?.[0]?.selected;
-    chart.setOption(
-      {
-        legend: previousLegendSelected ? { selected: previousLegendSelected } : undefined,
-        xAxis: { data: xAxisData },
-        series,
-      },
-      { notMerge: false, lazyUpdate: true, replaceMerge: ['series'] },
-    );
-    // ECharts requires resize after becoming visible (display:none → visible)
-    chart.resize();
-  }, [metrics, mode, points, selector, viewMode]);
-
-  useEffect(() => {
-    const chart = chartInstanceRef.current;
-    if (!chart) {
-      return;
-    }
-
-    const existingSeries = ((chart.getOption()?.series as Array<Record<string, unknown>> | undefined) ?? []).filter((series) => typeof series.id === 'string' && !String(series.id).startsWith('event:'));
-    existingSeries.forEach((series) => {
-      // Add event markers to existing series data for correct tooltip display
-      series.markPoint = {
-        symbol: (value: number, params: any) => {
-            const eventType = params.data?.type;
-            switch (eventType) {
-                case 'trade':
-                    return 'circle';
-                case 'communication':
-                    return 'rect';
-                case 'action':
-                    return 'triangle';
-                case 'kill':
-                    return 'diamond';
-                case 'victory':
-                    return 'pin';
-                default:
-            return 'diamond'
-            }
-        },
-        symbolSize: 14,
-        data: events
-          .filter((event) => ['trade', 'action', 'communication', 'kill', 'victory'].includes(event.type))
-          .map((event) => {
-            const index = findTimelineEventIndex(points, event);
-            if (index < 0) {
-              return null;
-            }
-            return {
-              name: `${event.type.toUpperCase()} · ${event.agent ?? ''}${event.target ? ` → ${event.target}` : ''}`,
-              yAxis: 0,
-              xAxis: index,
-              type: event.type,
-              itemStyle: { color: CHART_EVENT_COLORS[event.type] ?? '#6b8194' },
-            };
-          })
-          .filter(Boolean) as Array<Record<string, unknown>>,
-      };
-    });
-    chart.setOption(
-      {
-        series: existingSeries,
-      },
-      { notMerge: false, lazyUpdate: true, replaceMerge: ['series'] },
-    );
-  }, [events, points, scopeAgent]);
-
-  useEffect(
-    () => () => {
-      chartInstanceRef.current?.dispose();
-      chartInstanceRef.current = null;
-    },
-    [],
-  );
-
-  return (
-    <section className="panel chart-panel">
-      <div className="panel-header">
-        <div>
-          <p className="eyebrow">Telemetry</p>
-          <h3>{title}</h3>
-        </div>
-        <p className="panel-subtitle">{subtitle}</p>
-      </div>
-      <div className="chart-shell">
-        {points.length === 0 || metrics.length === 0 ? <div className="empty-state">No timeline data available yet.</div> : null}
-        <div ref={chartRef} className="chart-canvas" style={{ display: points.length === 0 || metrics.length === 0 ? 'none' : undefined }} />
-      </div>
-    </section>
-  );
-}
-
-function ResourceRelationChart({ title, subtitle, points, xMetric, yMetric, mode, selector, events = [], scopeAgent = null }: { title: string; subtitle: string; points: TimelinePoint[]; xMetric: string; yMetric: string; mode: ChartMode; selector: (point: TimelinePoint) => Record<string, number> | undefined; events?: LiveEvent[]; scopeAgent?: string | null }) {
-  const chartRef = useRef<HTMLDivElement | null>(null);
-  const chartInstanceRef = useRef<echarts.ECharts | null>(null);
-
-  useEffect(() => {
-    if (!chartRef.current || !xMetric || !yMetric) {
-      return;
-    }
-    if (!chartInstanceRef.current) {
-      chartInstanceRef.current = echarts.init(chartRef.current);
-    }
-    const chart = chartInstanceRef.current;
-    chart.setOption(
-      {
-        animationDuration: 250,
-        backgroundColor: 'transparent',
-        tooltip: {
-          trigger: 'item',
-          backgroundColor: '#ffffff',
-          borderColor: '#dde5ed',
-          textStyle: { color: '#1d2d3a' },
-        },
-        grid: {
-          left: 16,
-          right: 16,
-          top: 24,
-          bottom: 32,
-          containLabel: true,
-        },
-      },
-      { notMerge: false, lazyUpdate: true },
-    );
-    const resizeObserver = new ResizeObserver(() => chart.resize());
-    resizeObserver.observe(chartRef.current);
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, []);
-
-  useEffect(() => {
-    const chart = chartInstanceRef.current;
-    if (!chart || !xMetric || !yMetric) {
-      return;
-    }
-    let cumulativeX = 0;
-    let cumulativeY = 0;
-    const relationPoints = points.map((point) => {
-      const values = selector(point) ?? {};
-      const rawX = values[xMetric] ?? 0;
-      const rawY = values[yMetric] ?? 0;
-      const xValue = mode === 'cumulative' ? (cumulativeX += rawX) : rawX;
-      const yValue = mode === 'cumulative' ? (cumulativeY += rawY) : rawY;
-      return [xValue, yValue, pointLabel(point)];
-    });
-
-    const overlayPoints = events
-      .filter((event) => ['trade', 'action', 'communication', 'kill', 'victory'].includes(event.type))
-      .filter((event) => !scopeAgent || event.agent === scopeAgent || event.target === scopeAgent)
-      .map((event) => {
-        const index = findTimelineEventIndex(points, event);
-        if (index < 0) {
-          return null;
-        }
-        const point = points[index];
-        const values = selector(point) ?? {};
-        let xValue = values[xMetric] ?? 0;
-        let yValue = values[yMetric] ?? 0;
-        if (mode === 'cumulative') {
-          xValue = (relationPoints[index]?.[0] as number) ?? xValue;
-          yValue = (relationPoints[index]?.[1] as number) ?? yValue;
-        }
-        return {
-          value: [xValue, yValue, `${event.type.toUpperCase()} · ${event.agent ?? ''}${event.target ? ` → ${event.target}` : ''}`],
-          itemStyle: { color: CHART_EVENT_COLORS[event.type] ?? '#6b8194' },
-        };
-      })
-      .filter(Boolean);
-
-    chart.setOption(
-      {
-        tooltip: {
-          formatter: (params: { value?: unknown[] }) => {
-            const values = params.value ?? [];
-            return `${xMetric}: ${values[0] ?? 0}<br/>${yMetric}: ${values[1] ?? 0}<br/>${values[2] ?? ''}`;
-          },
-        },
-        grid: {
-          left: 16,
-          right: 16,
-          top: 24,
-          bottom: 32,
-          containLabel: true,
-        },
-        xAxis: {
-          type: 'value',
-          name: xMetric,
-          nameLocation: 'middle',
-          nameGap: 28,
-          axisLabel: { color: '#5a7085' },
-          axisLine: { lineStyle: { color: '#dde5ed' } },
-          splitLine: { lineStyle: { color: 'rgba(0,0,0,0.07)' } },
-        },
-        yAxis: {
-          type: 'value',
-          name: yMetric,
-          nameLocation: 'middle',
-          nameGap: 40,
-          axisLabel: { color: '#5a7085' },
-          axisLine: { lineStyle: { color: '#dde5ed' } },
-          splitLine: { lineStyle: { color: 'rgba(0,0,0,0.07)' } },
-        },
-        series: [
-          {
-            name: 'path',
-            type: 'line',
-            data: relationPoints,
-            showSymbol: false,
-            lineStyle: { color: '#c7d7e6', width: 2 },
-            z: 1,
-          },
-          {
-            name: 'samples',
-            type: 'scatter',
-            data: relationPoints,
-            symbolSize: 11,
-            itemStyle: { color: '#d97731', shadowBlur: 12, shadowColor: 'rgba(217, 119, 49, 0.24)' },
-            z: 2,
-          },
-          {
-            name: 'events',
-            type: 'effectScatter',
-            data: overlayPoints,
-            symbolSize: 14,
-            rippleEffect: { scale: 2.4, brushType: 'stroke' },
-            z: 3,
-            tooltip: {
-              formatter: (params: { value?: unknown[] }) => String(params.value?.[2] ?? 'event'),
-            },
-          },
-        ],
-      },
-      { notMerge: false, lazyUpdate: true, replaceMerge: ['series'] },
-    );
-    chartInstanceRef.current?.resize();
-  }, [events, mode, points, scopeAgent, selector, xMetric, yMetric]);
-
-  useEffect(
-    () => () => {
-      chartInstanceRef.current?.dispose();
-      chartInstanceRef.current = null;
-    },
-    [],
-  );
-
-  const hasData = points.length > 0 && xMetric && yMetric;
-
-  return (
-    <section className="panel chart-panel">
-      <div className="panel-header">
-        <div>
-          <p className="eyebrow">Correlation</p>
-          <h3>{title}</h3>
-        </div>
-        <p className="panel-subtitle">{subtitle}</p>
-      </div>
-      <div className="chart-shell">
-        {!hasData ? <div className="empty-state">Select two resources to compare.</div> : null}
-        <div ref={chartRef} className="chart-canvas" style={{ display: !hasData ? 'none' : undefined }} />
-      </div>
-    </section>
-  );
-}
-
-function KnowledgeGraph({ graph, onSelectDoc, selectedDocId }: { graph: AgentMemoryGraph | null; onSelectDoc: (docId: string) => void; selectedDocId: string | null }) {
-  const chartRef = useRef<HTMLDivElement | null>(null);
-  const chartInstanceRef = useRef<echarts.ECharts | null>(null);
-
-  useEffect(() => {
-    if (!chartRef.current || !graph || graph.graph.nodes.length === 0) {
-      return;
-    }
-    if (!chartInstanceRef.current) {
-      chartInstanceRef.current = echarts.init(chartRef.current);
-    }
-    const chart = chartInstanceRef.current;
-    chart.setOption(
-      {
-        animationDuration: 300,
-        backgroundColor: 'transparent',
-        tooltip: {
-          backgroundColor: '#ffffff',
-          borderColor: '#dde5ed',
-          textStyle: { color: '#1d2d3a' },
-          formatter: (params: { data?: Record<string, unknown> }) => {
-            const data = params.data ?? {};
-            const preview = typeof data.preview === 'string' ? data.preview : '';
-            const tokens = Array.isArray(data.tokens) ? data.tokens.join(', ') : '';
-            return `${String(data.name ?? '')}${preview ? `<br/>${preview}` : ''}${tokens ? `<br/><span style="color:#6b8194">${tokens}</span>` : ''}`;
-          },
-        },
-        series: [
-          {
-            type: 'graph',
-            layout: 'force',
-            roam: true,
-            draggable: true,
-            force: { repulsion: 180, edgeLength: [70, 130] },
-            label: { show: true, color: '#1d2d3a', fontSize: 11 },
-            lineStyle: { color: '#cbd7e3', opacity: 0.8, width: 1.2 },
-            categories: [{ name: 'agent' }, { name: 'memory' }],
-            data: graph.graph.nodes.map((node) => {
-              const category = node.category === 'agent' ? 0 : 1;
-              return {
-                ...node,
-                category,
-                itemStyle: {
-                  color: category === 0 ? '#2060a0' : '#d97731',
-                  borderColor: selectedDocId === node.id ? '#1d2d3a' : '#ffffff',
-                  borderWidth: selectedDocId === node.id ? 3 : 1,
-                },
-              };
-            }),
-            links: graph.graph.edges,
-          },
-        ],
-      },
-      { notMerge: false, lazyUpdate: true, replaceMerge: ['series'] },
-    );
-    chart.off('click');
-    chart.on('click', (params) => {
-      const data = (params.data ?? null) as Record<string, unknown> | null;
-      const nodeId = typeof data?.id === 'string' ? data.id : null;
-      const category = data?.category;
-      if (nodeId && category !== 0) {
-        onSelectDoc(nodeId);
-      }
-    });
-    const resizeObserver = new ResizeObserver(() => chart.resize());
-    resizeObserver.observe(chartRef.current);
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, [graph, onSelectDoc, selectedDocId]);
-
-  useEffect(
-    () => () => {
-      chartInstanceRef.current?.dispose();
-      chartInstanceRef.current = null;
-    },
-    [],
-  );
-
-  const isEmpty = !graph || graph.stats.documents === 0;
-
-  return (
-    <>
-      {isEmpty ? <div className="empty-state">No ChromaDB knowledge stored for this agent.</div> : null}
-      <div ref={chartRef} className="kb-graph-canvas" style={{ display: isEmpty ? 'none' : undefined }} />
-    </>
-  );
-}
-
-function AgentNetworkGraph({ agents, events }: { agents: AgentSummary[]; events: LiveEvent[] }) {
-  const chartRef = useRef<HTMLDivElement | null>(null);
-  const chartInstanceRef = useRef<echarts.ECharts | null>(null);
-  const aggregateRef = useRef<{ totals: Map<string, number>; links: Map<string, { source: string; target: string; type: string; value: number }>; seenKeys: Set<string>; lastLength: number }>({ totals: new Map(), links: new Map(), seenKeys: new Set(), lastLength: 0 });
-
-  useEffect(() => {
-    if (!chartRef.current) {
-      return;
-    }
-    if (!chartInstanceRef.current) {
-      chartInstanceRef.current = echarts.init(chartRef.current);
-    }
-    const chart = chartInstanceRef.current;
-    const resizeObserver = new ResizeObserver(() => chart.resize());
-    resizeObserver.observe(chartRef.current);
-    return () => resizeObserver.disconnect();
-  }, []);
-
-  useEffect(() => {
-    // Lazy init fallback: if the [] init effect ran before the DOM was measured, retry here
-    if (!chartInstanceRef.current && chartRef.current) {
-      chartInstanceRef.current = echarts.init(chartRef.current);
-    }
-    const chart = chartInstanceRef.current;
-    if (!chart) {
-      return;
-    }
-    const aggregate = aggregateRef.current;
-    if (events.length < aggregate.lastLength) {
-      aggregate.totals = new Map();
-      aggregate.links = new Map();
-      aggregate.seenKeys = new Set();
-      aggregate.lastLength = 0;
-    }
-    const newEvents = events.slice(0, Math.max(0, events.length - aggregate.lastLength));
-    for (const event of newEvents) {
-      if (!event.agent || !event.target || !['trade', 'communication', 'action'].includes(event.type)) {
-        continue;
-      }
-      const uniqueKey = `${event.timestamp ?? 0}:${event.type}:${event.agent}:${event.target}:${String(event.result ?? '')}`;
-      if (aggregate.seenKeys.has(uniqueKey)) {
-        continue;
-      }
-      aggregate.seenKeys.add(uniqueKey);
-      const key = `${event.agent}::${event.target}::${event.type}`;
-      const current = aggregate.links.get(key);
-      aggregate.links.set(key, {
-        source: event.agent,
-        target: event.target,
-        type: event.type,
-        value: (current?.value ?? 0) + 1,
-      });
-      aggregate.totals.set(event.agent, (aggregate.totals.get(event.agent) ?? 0) + 1);
-      aggregate.totals.set(event.target, (aggregate.totals.get(event.target) ?? 0) + 1);
-    }
-    aggregate.lastLength = events.length;
-    const nodes = agents.map((agent) => ({
-      id: agent.id,
-      name: agent.id,
-      value: aggregate.totals.get(agent.id) ?? 0,
-      symbolSize: 18 + Math.min((aggregate.totals.get(agent.id) ?? 0) * 2, 22),
-      itemStyle: { color: agent.alive ? '#2060a0' : '#9a8f8f' },
-    }));
-    const edges = Array.from(aggregate.links.values()).map((link) => ({
-      ...link,
-      lineStyle: {
-        color: link.type === 'trade' ? '#d97731' : link.type === 'communication' ? '#2060a0' : '#2e8b57',
-        width: 1 + Math.min(link.value, 6),
-        opacity: 0.82,
-      },
-    }));
-    chart.setOption(
-      {
-        animationDuration: 220,
-        backgroundColor: 'transparent',
-        tooltip: {
-          backgroundColor: '#ffffff',
-          borderColor: '#dde5ed',
-          textStyle: { color: '#1d2d3a' },
-          formatter: (params: { data?: Record<string, unknown> }) => {
-            const data = params.data ?? {};
-            if (typeof data.source === 'string' && typeof data.target === 'string') {
-              return `${data.source} → ${data.target}<br/>${String(data.type ?? '')}: ${String(data.value ?? 0)}`;
-            }
-            return `${String(data.name ?? '')}<br/>Interactions: ${String(data.value ?? 0)}`;
-          },
-        },
-        series: [
-          {
-            type: 'graph',
-            layout: 'circular',
-            roam: true,
-            animation: false,
-            lineStyle: { curveness: 0.18, opacity: 0.8 },
-            label: { show: true, color: '#1d2d3a', fontSize: 11 },
-            edgeSymbol: ['none', 'arrow'],
-            edgeSymbolSize: [0, 7],
-            data: nodes,
-            links: edges,
-          },
-        ],
-      },
-      { notMerge: true },
-    );
-    chart.resize();
-  }, [agents, events]);
-
-  useEffect(
-    () => () => {
-      chartInstanceRef.current?.dispose();
-      chartInstanceRef.current = null;
-    },
-    [],
-  );
-
-  return (
-    <div style={{ position: 'relative', height: '100%' }}>
-      {agents.length === 0 && (
-        <div className="empty-state" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          No agent graph available yet.
-        </div>
-      )}
-      <div ref={chartRef} className="network-graph-canvas" />
-    </div>
-  );
-}
-
-function EventBody({ event }: { event: LiveEvent }) {
-  if (event.type === 'trade') {
-    const g = event.give;
-    const t = event.take;
-    const ok = String(event.result ?? '').startsWith('SUCCESS');
-    return (
-      <span className="log-body">
-        <strong className="log-actor">{event.agent}</strong>
-        <span className="log-arrow"> → </span>
-        <strong className="log-target">{event.target}</strong>
-        {g && t && (
-          <span className="log-detail">
-            {': '}
-            <span className="log-give">
-              {g.qty}×{g.resource}
-            </span>
-            <span className="log-swap"> ⇄ </span>
-            <span className="log-take">
-              {t.qty}×{t.resource}
-            </span>
-          </span>
-        )}
-        <span className={ok ? 'log-result-ok' : 'log-result-fail'}> — {String(event.result ?? '')}</span>
-      </span>
-    );
-  }
-  if (event.type === 'communication') {
-    return (
-      <span className="log-body">
-        <strong className="log-actor">{event.agent}</strong>
-        <span className="log-arrow"> → </span>
-        <strong className="log-target">{event.target ?? 'ALL'}</strong>
-        <span className="log-message">: “{event.text}”</span>
-      </span>
-    );
-  }
-  if (event.type === 'action') {
-    const hasTarget = event.target && event.target !== 'undefined' && event.target !== 'null';
-    const ok = String(event.result ?? '').startsWith('SUCCESS');
-    const actionName = event.action ?? '';
-    const isTradeAction = /trade/i.test(actionName);
-    const trdMatch = isTradeAction ? String(event.result ?? '').match(/TRD_\d+/) : null;
-    return (
-      <span className="log-body">
-        <strong className="log-actor">{event.agent}</strong>
-        {hasTarget && (
-          <>
-            <span className="log-arrow"> → </span>
-            <strong className="log-target">{event.target}</strong>
-          </>
-        )}
-        <span className="log-action"> [{event.action}]</span>
-        {trdMatch && <span className="log-trade-id"> {trdMatch[0]}</span>}
-        {event.result !== undefined && <span className={ok ? 'log-result-ok' : 'log-result-fail'}> — {String(event.result)}</span>}
-      </span>
-    );
-  }
-  if (event.type === 'think') {
-    return (
-      <span className="log-body">
-        <strong className="log-actor">{event.agent}</strong>
-        <span className="log-think"> thinks </span>
-        <em className="log-message">“{event.thought}”</em>
-      </span>
-    );
-  }
-  if (event.type === 'kill') {
-    return (
-      <span className="log-body">
-        <strong className="log-actor">{event.agent}</strong>
-        <span className="log-kill"> eliminated</span>
-        {event.reason && <span> — {event.reason}</span>}
-      </span>
-    );
-  }
-  if (event.type === 'victory') {
-    return <span className="log-body log-victory">{event.text}</span>;
-  }
-  if (event.type === 'epoch') {
-    return <span className="log-body log-epoch">Epoch {event.epoch} started</span>;
-  }
-  if (event.type === 'step') {
-    return <span className="log-body log-muted">Global step {event.step}</span>;
-  }
-  return <span className="log-body log-muted">{event.text ?? JSON.stringify(event)}</span>;
-}
-
-function EventLine({ event }: { event: LiveEvent }) {
-  return (
-    <div className="log-row">
-      <span className="log-time">{formatTimestamp(event.timestamp)}</span>
-      <span className={`log-type log-type-${event.type}`}>{event.type}</span>
-      <EventBody event={event} />
-    </div>
-  );
-}
-
 export default function App() {
   const [status, setStatus] = useState<SimulationStatus | null>(null);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [timeline, setTimeline] = useState<TimelinePoint[]>([]);
+  const [markets, setMarkets] = useState<Record<string, MarketSummary>>({});
+  const [selectedMarket, setSelectedMarket] = useState('');
+  const [orderBook, setOrderBook] = useState<MarketOrderBook | null>(null);
+  const [macro, setMacro] = useState<MacroMetrics | null>(null);
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>([]);
   const [scatterXMetric, setScatterXMetric] = useState('');
   const [scatterYMetric, setScatterYMetric] = useState('');
@@ -916,7 +61,7 @@ export default function App() {
   const refreshTimerRef = useRef<number | null>(null);
 
   // Event types that warrant a REST re-fetch of timeline/status after they arrive
-  const REFRESH_ON_TYPES = new Set(['step', 'kill', 'epoch', 'victory', 'manual_step', 'reset', 'config', 'godmode']);
+  const REFRESH_ON_TYPES = new Set(['step', 'kill', 'epoch', 'victory', 'manual_step', 'reset', 'config', 'godmode', 'market_fill', 'world_event']);
 
   const metrics = useMemo(() => collectMetrics(timeline, (point) => point.totals), [timeline]);
   const agentMetrics = useMemo(() => collectMetrics(selectedAgentTimeline, (point) => point.resources), [selectedAgentTimeline]);
@@ -1012,6 +157,27 @@ export default function App() {
     setTimeline((current) => (sameTimeline(current, nextTimeline) ? current : nextTimeline));
   }
 
+  async function refreshMarkets() {
+    const nextMarkets = await getMarkets();
+    setMarkets((current) => (sameMarketMap(current, nextMarkets) ? current : nextMarkets));
+    const resources = Object.keys(nextMarkets).sort();
+    setSelectedMarket((current) => (current && nextMarkets[current] ? current : (resources[0] ?? '')));
+  }
+
+  async function refreshMacro() {
+    const nextMacro = await getMacroMetrics();
+    setMacro((current) => (sameMacro(current, nextMacro) ? current : nextMacro));
+  }
+
+  async function refreshOrderBook(resource: string) {
+    if (!resource) {
+      setOrderBook(null);
+      return;
+    }
+    const nextOrderBook = await getMarketOrderBook(resource);
+    setOrderBook((current) => (sameOrderBook(current, nextOrderBook) ? current : nextOrderBook));
+  }
+
   async function refreshEvents() {
     const nextEvents = await getEvents(400);
     const normalized = nextEvents.slice().reverse();
@@ -1034,7 +200,7 @@ export default function App() {
   async function bootstrap() {
     try {
       setError(null);
-      await Promise.all([refreshStatusAndTimeline(), refreshEvents(), refreshConfig()]);
+      await Promise.all([refreshStatusAndTimeline(), refreshEvents(), refreshConfig(), refreshMarkets(), refreshMacro()]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Failed to load dashboard');
     }
@@ -1059,6 +225,14 @@ export default function App() {
   }, [selectedAgent]);
 
   useEffect(() => {
+    if (!selectedMarket) {
+      setOrderBook(null);
+      return;
+    }
+    void refreshOrderBook(selectedMarket);
+  }, [selectedMarket]);
+
+  useEffect(() => {
     let isDisposed = false;
     let pingTimer: number | null = null;
     let ws: WebSocket | null = null;
@@ -1070,10 +244,13 @@ export default function App() {
       };
 
       // Debounced REST re-fetch after meaningful state-changing events
-      const scheduleRefresh = () => {
+      const scheduleRefreshWithMacro = () => {
         if (refreshTimerRef.current !== null) window.clearTimeout(refreshTimerRef.current);
         refreshTimerRef.current = window.setTimeout(() => {
           void refreshStatusAndTimeline();
+          void refreshMarkets();
+          void refreshMacro();
+          if (selectedMarket) void refreshOrderBook(selectedMarket);
           if (selectedAgent) void refreshAgent(selectedAgent);
         }, 200);
       };
@@ -1084,12 +261,15 @@ export default function App() {
           totals?: Record<string, number>;
           agents?: Record<string, Record<string, number>>;
           agents_alive?: Array<{ id: string; alive: boolean }>;
+          markets?: Record<string, MarketSummary>;
           status?: SimulationStatus;
           epoch?: number;
           step?: number;
           run_id?: string;
           reason?: string;
         };
+        // Filter out synthetic market-maker entries from chart data
+        const filteredAgents_ = snap.agents ? Object.fromEntries(Object.entries(snap.agents).filter(([id]) => !id.startsWith('__mm_'))) : {};
         // Append to timeline
         const newPoint: TimelinePoint = {
           timestamp: snap.timestamp ?? Date.now() / 1000,
@@ -1099,7 +279,7 @@ export default function App() {
           state: snap.state ?? '',
           reason: snap.reason ?? '',
           totals: snap.totals ?? {},
-          agents: snap.agents ?? {},
+          agents: filteredAgents_,
         };
         setTimeline((prev) => {
           const updated = [...prev, newPoint];
@@ -1114,6 +294,16 @@ export default function App() {
         if (snap.status) {
           const nextStatus = snap.status;
           setStatus((current) => (sameStatus(current, nextStatus) ? current : nextStatus));
+        }
+        if (snap.markets) {
+          const nextMarkets = snap.markets;
+          setMarkets((current) => (sameMarketMap(current, nextMarkets) ? current : nextMarkets));
+          const resources = Object.keys(nextMarkets).sort();
+          setSelectedMarket((current) => (current && nextMarkets[current] ? current : (resources[0] ?? '')));
+        }
+        if ((snap as LiveEvent & { macro?: MacroMetrics }).macro) {
+          const nextMacro = (snap as LiveEvent & { macro?: MacroMetrics }).macro!;
+          setMacro((current) => (sameMacro(current, nextMacro) ? current : nextMacro));
         }
         // Don't push snapshots to the event log
         return;
@@ -1133,13 +323,16 @@ export default function App() {
       }
 
       // Push to event ring buffer (newest first, capped)
-      startTransition(() => {
-        setEvents((previous) => [normalizedEvent, ...previous].slice(0, MAX_EVENTS));
-      });
+      // Suppress high-frequency macro_snapshot events from the visible log
+      if (normalizedEvent.type !== 'macro_snapshot') {
+        startTransition(() => {
+          setEvents((previous) => [normalizedEvent, ...previous].slice(0, MAX_EVENTS));
+        });
+      }
 
       // Trigger a REST refresh after key events so timeline/status stay in sync
       if (REFRESH_ON_TYPES.has(normalizedEvent.type)) {
-        scheduleRefresh();
+        scheduleRefreshWithMacro();
       }
     };
 
@@ -1420,40 +613,42 @@ export default function App() {
         <div className="top-grid">
           <TimelineChart title="Global timeline" subtitle="Zoomable multi-metric trend derived from backend snapshots." points={chartTimeline} metrics={selectedMetrics} mode={chartMode} selector={(point) => point.totals} viewMode={chartViewMode} events={chartEvents} />
 
-          <section className="panel compact-panel metric-panel">
-            <div className="panel-header">
-              <div>
-                <p className="eyebrow">Metrics</p>
-                <h3>Visible resources</h3>
+          <div className="top-stack">
+            <section className="panel compact-panel metric-panel">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">Metrics</p>
+                  <h3>Visible resources</h3>
+                </div>
               </div>
-            </div>
-            <div className="metric-list">
-              {metrics.length === 0 ? (
-                <div className="empty-state">No metrics captured yet.</div>
-              ) : (
-                metrics.map((metric) => {
-                  const checked = selectedMetrics.includes(metric);
-                  return (
-                    <label key={metric} className="metric-chip">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(event) => {
-                          setSelectedMetrics((current) => {
-                            if (event.target.checked) {
-                              return [...current, metric];
-                            }
-                            return current.filter((item) => item !== metric);
-                          });
-                        }}
-                      />
-                      <span>{metric}</span>
-                    </label>
-                  );
-                })
-              )}
-            </div>
-          </section>
+              <div className="metric-list">
+                {metrics.length === 0 ? (
+                  <div className="empty-state">No metrics captured yet.</div>
+                ) : (
+                  metrics.map((metric) => {
+                    const checked = selectedMetrics.includes(metric);
+                    return (
+                      <label key={metric} className="metric-chip">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(event) => {
+                            setSelectedMetrics((current) => {
+                              if (event.target.checked) {
+                                return [...current, metric];
+                              }
+                              return current.filter((item) => item !== metric);
+                            });
+                          }}
+                        />
+                        <span>{metric}</span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+          </div>
         </div>
 
         {/* <section className="relation-wrapper">
@@ -1483,15 +678,20 @@ export default function App() {
           />
         </section> */}
 
-        <section className="panel chart-panel network-panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Interaction graph</p>
-              <h3>Agent network</h3>
+        <section className="panel chart-panel network-panel top-grid">
+          <div className="top-stack">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">Interaction graph</p>
+                <h3>Agent network</h3>
+              </div>
+              <p className="panel-subtitle">Edges aggregate trades, communications and actions in realtime.</p>
             </div>
-            <p className="panel-subtitle">Edges aggregate trades, communications and actions in realtime.</p>
+            <AgentNetworkGraph agents={agents} events={events} />
           </div>
-          <AgentNetworkGraph agents={agents} events={events} />
+          <div></div>
+          <MarketDepthPanel markets={markets} selectedMarket={selectedMarket} onSelectMarket={setSelectedMarket} orderBook={orderBook} />
+          <MacroPanel macro={macro} />
         </section>
 
         <div className="bottom-grid">
@@ -1540,27 +740,6 @@ export default function App() {
               </div>
             </section>
 
-            <section className="panel compact-panel">
-              <div className="panel-header">
-                <div>
-                  <p className="eyebrow">Godmode</p>
-                  <h3>Live interventions</h3>
-                </div>
-                <ShieldAlert size={16} className="header-icon danger-icon" />
-              </div>
-              <select value={gmAction} onChange={(event) => setGmAction(event.target.value)} className="field-select">
-                <option value="inject_resource">inject_resource</option>
-                <option value="set_portfolio">set_portfolio</option>
-                <option value="set_constraint">set_constraint</option>
-                <option value="send_message">send_message</option>
-                <option value="impersonate_action">impersonate_action</option>
-              </select>
-              <textarea className="json-editor" value={gmParams} onChange={(event) => setGmParams(event.target.value)} spellCheck={false} />
-              <button type="button" className="danger-button" disabled={busyAction !== null} onClick={() => void handleGodmode()}>
-                Apply intervention
-              </button>
-            </section>
-
             {(feedback || error || status?.last_error) && (
               <section className="panel compact-panel status-panel">
                 {feedback && <p className="feedback-ok">{feedback}</p>}
@@ -1569,6 +748,27 @@ export default function App() {
               </section>
             )}
           </div>
+          <ChatbotPanel />
+          <section className="panel compact-panel">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">Godmode</p>
+                <h3>Live interventions</h3>
+              </div>
+              <ShieldAlert size={16} className="header-icon danger-icon" />
+            </div>
+            <select value={gmAction} onChange={(event) => setGmAction(event.target.value)} className="field-select">
+              <option value="inject_resource">inject_resource</option>
+              <option value="set_portfolio">set_portfolio</option>
+              <option value="set_constraint">set_constraint</option>
+              <option value="send_message">send_message</option>
+              <option value="impersonate_action">impersonate_action</option>
+            </select>
+            <textarea className="json-editor" value={gmParams} onChange={(event) => setGmParams(event.target.value)} spellCheck={false} />
+            <button type="button" className="danger-button" disabled={busyAction !== null} onClick={() => void handleGodmode()}>
+              Apply intervention
+            </button>
+          </section>
         </div>
       </main>
 
