@@ -10,7 +10,8 @@ import time
 import uuid
 import zipfile
 from copy import deepcopy
-from typing import Annotated, List, Dict, Any
+from dataclasses import dataclass, field
+from typing import Annotated, List, Dict, Any, Optional, Literal
 from concurrent.futures import ThreadPoolExecutor
 #import google_genai
 # RAG/Memory imports
@@ -18,6 +19,543 @@ import os
 import tempfile
 from autogen_core.memory import MemoryContent, MemoryMimeType
 from autogen_ext.memory.chromadb import ChromaDBVectorMemory, PersistentChromaDBVectorMemoryConfig, SentenceTransformerEmbeddingFunctionConfig
+
+# ==========================================
+# 0. WORLD STATE — formal world representation
+# ==========================================
+
+@dataclass
+class AgentState:
+    """Formal state record for one agent in the world."""
+    agent_id: str
+    portfolio: Dict[str, float]
+    constraints: Dict[str, Dict]
+    config: Dict
+    alive: bool = True
+
+    def get(self, resource: str, default: float = 0.0) -> float:
+        return self.portfolio.get(resource, default)
+
+
+# ──────────────────────────────────────────
+# RELATIONS & TRUST
+# ──────────────────────────────────────────
+
+@dataclass
+class RelationRecord:
+    source: str
+    target: str
+    trust: float        # 0.0 (enemy) → 1.0 (total trust), default 0.5
+    rel_type: str       # ally | neutral | rival | enemy
+
+
+class RelationGraph:
+    """Directional (asymmetric) trust matrix between agents."""
+
+    _NEUTRAL_TRUST = 0.5
+
+    def __init__(self):
+        # key: (source, target)
+        self._matrix: Dict[tuple, RelationRecord] = {}
+
+    def init_from_yaml(self, relations_cfg: List[Dict], agent_ids: List[str]):
+        """Populate from YAML global_rules.relations list, then fill missing pairs."""
+        self._matrix = {}
+        # Load explicit relations
+        for r in (relations_cfg or []):
+            src = r.get("source", "")
+            tgt = r.get("target", "")
+            if src and tgt:
+                self._matrix[(src, tgt)] = RelationRecord(
+                    source=src,
+                    target=tgt,
+                    trust=float(r.get("trust", self._NEUTRAL_TRUST)),
+                    rel_type=r.get("type", "neutral"),
+                )
+        # Fill symmetric neutral for all other pairs (lazy)
+
+    def get_trust(self, source: str, target: str) -> float:
+        rec = self._matrix.get((source, target))
+        return rec.trust if rec else self._NEUTRAL_TRUST
+
+    def get_rel_type(self, source: str, target: str) -> str:
+        rec = self._matrix.get((source, target))
+        return rec.rel_type if rec else "neutral"
+
+    def update_trust(self, source: str, target: str, delta: float):
+        key = (source, target)
+        if key not in self._matrix:
+            self._matrix[key] = RelationRecord(source, target, self._NEUTRAL_TRUST, "neutral")
+        rec = self._matrix[key]
+        rec.trust = max(0.0, min(1.0, rec.trust + delta))
+        # Update rel_type based on trust level
+        if rec.trust >= 0.75:
+            rec.rel_type = "ally"
+        elif rec.trust <= 0.25:
+            rec.rel_type = "enemy"
+        elif rec.trust <= 0.4:
+            rec.rel_type = "rival"
+        else:
+            rec.rel_type = "neutral"
+
+    def decay_all(self, rate: float):
+        """Decay all trust values toward 0.5 by rate."""
+        for rec in self._matrix.values():
+            if rec.trust > self._NEUTRAL_TRUST:
+                rec.trust = max(self._NEUTRAL_TRUST, rec.trust - rate)
+            elif rec.trust < self._NEUTRAL_TRUST:
+                rec.trust = min(self._NEUTRAL_TRUST, rec.trust + rate)
+
+    def get_relations_for(self, agent_id: str) -> List[RelationRecord]:
+        return [r for (src, _tgt), r in self._matrix.items() if src == agent_id]
+
+    def to_list(self) -> List[Dict]:
+        return [
+            {"source": r.source, "target": r.target, "trust": round(r.trust, 4), "type": r.rel_type}
+            for r in self._matrix.values()
+        ]
+
+
+# ──────────────────────────────────────────
+# MARKET ENGINE — Order book + OTC
+# ──────────────────────────────────────────
+
+@dataclass
+class Order:
+    id: str
+    side: str           # "bid" | "ask"
+    agent_id: str
+    resource: str
+    currency: str
+    quantity: float
+    price: float        # limit price
+    filled: float = 0.0
+    status: str = "open"   # open | filled | partial | cancelled
+    created_tick: int = 0
+
+    @property
+    def remaining(self) -> float:
+        return self.quantity - self.filled
+
+
+@dataclass
+class Market:
+    resource: str
+    currency: str
+    current_price: float
+    config: Dict = field(default_factory=dict)
+    bids: List[Order] = field(default_factory=list)    # sorted desc by price
+    asks: List[Order] = field(default_factory=list)    # sorted asc by price
+    price_history: List[tuple] = field(default_factory=list)  # (tick, price)
+
+    def _sort(self):
+        self.bids.sort(key=lambda o: (-o.price, o.created_tick))
+        self.asks.sort(key=lambda o: (o.price, o.created_tick))
+
+    def best_bid(self) -> Optional[float]:
+        for o in self.bids:
+            if o.status in ("open", "partial"):
+                return o.price
+        return None
+
+    def best_ask(self) -> Optional[float]:
+        for o in self.asks:
+            if o.status in ("open", "partial"):
+                return o.price
+        return None
+
+    def mid_price(self) -> float:
+        bb = self.best_bid()
+        ba = self.best_ask()
+        if bb is not None and ba is not None:
+            return (bb + ba) / 2.0
+        return self.current_price
+
+    def top_of_book(self, depth: int = 10) -> Dict:
+        bids_agg: Dict[float, float] = {}
+        for o in self.bids:
+            if o.status in ("open", "partial"):
+                bids_agg[o.price] = bids_agg.get(o.price, 0) + o.remaining
+        asks_agg: Dict[float, float] = {}
+        for o in self.asks:
+            if o.status in ("open", "partial"):
+                asks_agg[o.price] = asks_agg.get(o.price, 0) + o.remaining
+        sorted_bids = sorted(bids_agg.items(), key=lambda x: -x[0])[:depth]
+        sorted_asks = sorted(asks_agg.items(), key=lambda x: x[0])[:depth]
+        return {
+            "bids": [{"price": p, "qty": q} for p, q in sorted_bids],
+            "asks": [{"price": p, "qty": q} for p, q in sorted_asks],
+            "mid_price": self.mid_price(),
+            "last_price": self.current_price,
+        }
+
+
+class MarketEngine:
+    """Manages limit order books for configured markets."""
+
+    def __init__(self, markets_cfg: List[Dict]):
+        self.markets: Dict[str, Market] = {}
+        self._order_index: Dict[str, Order] = {}   # order_id → Order
+        self._order_counter = 1
+        for m in (markets_cfg or []):
+            resource = m["resource"]
+            self.markets[resource] = Market(
+                resource=resource,
+                currency=m.get("currency", "credits"),
+                current_price=float(m.get("initial_price", 1.0)),
+                config=m,
+            )
+
+    def _next_order_id(self) -> str:
+        oid = f"ORD_{self._order_counter}"
+        self._order_counter += 1
+        return oid
+
+    def _reserve(self, agent_id: str, reserve_res: str, reserve_qty: float, portfolios: Dict) -> bool:
+        port = portfolios.get(agent_id, {})
+        if port.get(reserve_res, 0) < reserve_qty:
+            return False
+        port[reserve_res] = port.get(reserve_res, 0) - reserve_qty
+        return True
+
+    def _release(self, agent_id: str, res: str, qty: float, portfolios: Dict):
+        port = portfolios.get(agent_id, {})
+        port[res] = port.get(res, 0) + qty
+
+    def add_order(self, agent_id: str, side: str, resource: str, quantity: float,
+                  price: float, portfolios: Dict, tick: int = 0) -> str:
+        market = self.markets.get(resource)
+        if not market:
+            return f"FAILED: No market for resource '{resource}'."
+        if quantity <= 0 or price <= 0:
+            return "FAILED: quantity and price must be positive."
+        cfg = market.config
+        min_price = cfg.get("min_price", 0)
+        max_price = cfg.get("max_price", float("inf"))
+        if not (min_price <= price <= max_price):
+            return f"FAILED: price {price} outside allowed range [{min_price}, {max_price}]."
+        currency = market.currency
+        if side == "bid":
+            # Reserve currency
+            total_cost = price * quantity
+            if not self._reserve(agent_id, currency, total_cost, portfolios):
+                return f"FAILED: Insufficient {currency} to place bid (need {total_cost})."
+        elif side == "ask":
+            # Reserve resource
+            if not self._reserve(agent_id, resource, quantity, portfolios):
+                return f"FAILED: Insufficient {resource} to place ask."
+        else:
+            return "FAILED: side must be 'bid' or 'ask'."
+        order = Order(
+            id=self._next_order_id(),
+            side=side,
+            agent_id=agent_id,
+            resource=resource,
+            currency=currency,
+            quantity=quantity,
+            price=price,
+            created_tick=tick,
+        )
+        self._order_index[order.id] = order
+        if side == "bid":
+            market.bids.append(order)
+        else:
+            market.asks.append(order)
+        market._sort()
+        # If clearing == "on_order", match immediately
+        if cfg.get("clearing") == "on_order":
+            self.clear_market(resource, portfolios, tick)
+        return f"SUCCESS: {order.id} placed ({side} {quantity}×{resource} @ {price} {currency})."
+
+    def cancel_order(self, order_id: str, agent_id: str, portfolios: Dict) -> str:
+        order = self._order_index.get(order_id)
+        if not order:
+            return "FAILED: Order not found."
+        if order.agent_id != agent_id:
+            return "FAILED: Not your order."
+        if order.status not in ("open", "partial"):
+            return f"FAILED: Order status is '{order.status}', cannot cancel."
+        order.status = "cancelled"
+        # Release reserved resources
+        market = self.markets.get(order.resource)
+        if market:
+            if order.side == "bid":
+                refund = order.price * order.remaining
+                self._release(agent_id, order.currency, refund, portfolios)
+            else:
+                self._release(agent_id, order.resource, order.remaining, portfolios)
+        return f"SUCCESS: Order {order_id} cancelled."
+
+    def clear_market(self, resource: str, portfolios: Dict, tick: int) -> List[Dict]:
+        """FIFO price-time matching. Returns list of fill event dicts."""
+        market = self.markets.get(resource)
+        if not market:
+            return []
+        fills = []
+        market._sort()
+
+        active_bids = [o for o in market.bids if o.status in ("open", "partial")]
+        active_asks = [o for o in market.asks if o.status in ("open", "partial")]
+
+        bi = ai = 0
+        while bi < len(active_bids) and ai < len(active_asks):
+            bid = active_bids[bi]
+            ask = active_asks[ai]
+            if bid.price < ask.price:
+                break
+            # Matched — fill at midpoint
+            fill_price = round((bid.price + ask.price) / 2.0, 8)
+            fill_qty = min(bid.remaining, ask.remaining)
+            fill_cost = fill_price * fill_qty
+
+            # Transfer resource: ask_agent → bid_agent
+            # Transfer currency: bid_agent → ask_agent
+            # Resources were reserved at order placement; release reserved, deliver to counterparty
+            # Bid reserved currency at bid.price; refund the surplus
+            surplus_currency = (bid.price - fill_price) * fill_qty
+            self._release(bid.agent_id, market.resource, fill_qty, portfolios)
+            self._release(ask.agent_id, market.currency, fill_cost, portfolios)
+            if surplus_currency > 0:
+                self._release(bid.agent_id, market.currency, surplus_currency, portfolios)
+
+            bid.filled += fill_qty
+            ask.filled += fill_qty
+            bid.status = "filled" if bid.remaining <= 1e-9 else "partial"
+            ask.status = "filled" if ask.remaining <= 1e-9 else "partial"
+
+            market.current_price = fill_price
+            market.price_history.append((tick, fill_price))
+            market.price_history = market.price_history[-2000:]
+
+            fills.append({
+                "resource": resource,
+                "fill_price": fill_price,
+                "fill_qty": fill_qty,
+                "buyer": bid.agent_id,
+                "seller": ask.agent_id,
+                "bid_order": bid.id,
+                "ask_order": ask.id,
+                "tick": tick,
+            })
+
+            if bid.status == "filled":
+                bi += 1
+            if ask.status == "filled":
+                ai += 1
+
+        # Price impact: if no fills occurred but there are orders on one side, nudge price
+        return fills
+
+    def get_price(self, resource: str) -> Optional[float]:
+        m = self.markets.get(resource)
+        return m.current_price if m else None
+
+    def get_open_orders_for(self, agent_id: str, resource: str = None) -> List[Order]:
+        orders = [o for o in self._order_index.values()
+                  if o.agent_id == agent_id and o.status in ("open", "partial")]
+        if resource:
+            orders = [o for o in orders if o.resource == resource]
+        return orders
+
+    def summary(self) -> Dict:
+        result = {}
+        for res, m in self.markets.items():
+            active_bids = [o for o in m.bids if o.status in ("open", "partial")]
+            active_asks = [o for o in m.asks if o.status in ("open", "partial")]
+            result[res] = {
+                "resource": res,
+                "currency": m.currency,
+                "current_price": m.current_price,
+                "mid_price": m.mid_price(),
+                "bids_count": len(active_bids),
+                "asks_count": len(active_asks),
+                "bids_volume": sum(o.remaining for o in active_bids),
+                "asks_volume": sum(o.remaining for o in active_asks),
+            }
+        return result
+
+
+# ──────────────────────────────────────────
+# WORLD EVENTS — Shocks, Trends, Conditionals
+# ──────────────────────────────────────────
+
+@dataclass
+class WorldEventEffect:
+    targets: Any            # "all" | list[str]
+    resource: Optional[str] = None
+    delta: Optional[float] = None      # one-time resource change
+    rate: Optional[float] = None       # per-step resource change (trend)
+    market: Optional[str] = None
+    price_multiplier: Optional[float] = None
+    price_set: Optional[float] = None
+    trust_source: Optional[str] = None
+    trust_delta: Optional[float] = None
+
+
+@dataclass
+class WorldEventDef:
+    name: str
+    event_type: str                    # shock | trend | conditional
+    effect: WorldEventEffect
+    trigger_tick: Optional[int] = None
+    duration: int = 1                  # steps active (trend)
+    condition_resource: Optional[str] = None
+    condition_operator: Optional[str] = None  # lt | gt | le | ge | eq
+    condition_threshold: Optional[float] = None
+    condition_scope: str = "any_agent"   # any_agent | all_agents
+    # runtime state (reset on each run)
+    triggered: bool = False
+    remaining: int = 0
+
+
+def _parse_world_event(raw: Dict) -> WorldEventDef:
+    eff_raw = raw.get("effect", {})
+    effect = WorldEventEffect(
+        targets=eff_raw.get("targets", "all"),
+        resource=eff_raw.get("resource"),
+        delta=eff_raw.get("delta"),
+        rate=eff_raw.get("rate"),
+        market=eff_raw.get("market"),
+        price_multiplier=eff_raw.get("price_multiplier"),
+        price_set=eff_raw.get("price_set"),
+        trust_source=eff_raw.get("trust_source"),
+        trust_delta=eff_raw.get("trust_delta"),
+    )
+    trigger = raw.get("trigger", {})
+    cond = trigger.get("condition", {})
+    return WorldEventDef(
+        name=raw["name"],
+        event_type=raw.get("type", "shock"),
+        effect=effect,
+        trigger_tick=trigger.get("tick"),
+        duration=raw.get("duration", 1),
+        condition_resource=cond.get("resource"),
+        condition_operator=cond.get("operator"),
+        condition_threshold=cond.get("threshold"),
+        condition_scope=cond.get("scope", "any_agent"),
+    )
+
+
+class WorldEventScheduler:
+    """Evaluates and applies world events each simulation tick."""
+
+    def __init__(self, events_cfg: List[Dict]):
+        self._defs = [_parse_world_event(e) for e in (events_cfg or [])]
+        # Deep-copy for reset
+        self._initial_defs = deepcopy(self._defs)
+
+    def reset(self):
+        self._defs = deepcopy(self._initial_defs)
+
+    def tick(self, portfolios: Dict, agents: Dict, market_engine: "MarketEngine",
+             relation_graph: "RelationGraph", engine_ref, current_tick: int) -> List[Dict]:
+        fired = []
+        for ev in self._defs:
+            should_apply = False
+
+            if ev.event_type == "shock" and not ev.triggered:
+                if ev.trigger_tick is not None and current_tick >= ev.trigger_tick:
+                    should_apply = True
+                    ev.triggered = True
+
+            elif ev.event_type == "trend" and not ev.triggered:
+                if ev.trigger_tick is not None and current_tick >= ev.trigger_tick:
+                    ev.triggered = True
+                    ev.remaining = ev.duration
+                    should_apply = True
+                elif ev.trigger_tick is None:
+                    # condition-based trend start
+                    if self._check_condition(ev, portfolios):
+                        ev.triggered = True
+                        ev.remaining = ev.duration
+                        should_apply = True
+
+            elif ev.event_type == "trend" and ev.triggered and ev.remaining > 0:
+                should_apply = True
+
+            elif ev.event_type == "conditional" and not ev.triggered:
+                if self._check_condition(ev, portfolios):
+                    should_apply = True
+                    ev.triggered = True
+
+            if should_apply:
+                result = self._apply(ev, portfolios, agents, market_engine, relation_graph, current_tick)
+                fired.append({"name": ev.name, "type": ev.event_type, "tick": current_tick, "effects": result})
+                if ev.event_type == "trend" and ev.remaining > 0:
+                    ev.remaining -= 1
+
+        return fired
+
+    def _check_condition(self, ev: WorldEventDef, portfolios: Dict) -> bool:
+        if not ev.condition_resource or ev.condition_threshold is None:
+            return False
+        op = ev.condition_operator or "lt"
+        res = ev.condition_resource
+        thresh = ev.condition_threshold
+        values = [p.get(res, 0) for p in portfolios.values()]
+        if not values:
+            return False
+
+        def _test(v):
+            if op == "lt": return v < thresh
+            if op == "gt": return v > thresh
+            if op == "le": return v <= thresh
+            if op == "ge": return v >= thresh
+            if op == "eq": return v == thresh
+            return False
+
+        if ev.condition_scope == "all_agents":
+            return all(_test(v) for v in values)
+        return any(_test(v) for v in values)
+
+    def _resolve_targets(self, targets, agents: Dict) -> List[str]:
+        if targets == "all":
+            return list(agents.keys())
+        if isinstance(targets, list):
+            return [t for t in targets if t in agents]
+        if isinstance(targets, str) and targets in agents:
+            return [targets]
+        return []
+
+    def _apply(self, ev: WorldEventDef, portfolios: Dict, agents: Dict,
+               market_engine: "MarketEngine", relation_graph: "RelationGraph",
+               tick: int) -> List[str]:
+        eff = ev.effect
+        results = []
+        target_ids = self._resolve_targets(eff.targets, agents)
+
+        # Portfolio resource delta / rate
+        if eff.resource:
+            amount = eff.delta if ev.event_type in ("shock", "conditional") else eff.rate
+            if amount is not None:
+                for aid in target_ids:
+                    port = portfolios.get(aid, {})
+                    port[eff.resource] = port.get(eff.resource, 0) + amount
+                    results.append(f"{aid}.{eff.resource} {'+' if amount >= 0 else ''}{amount}")
+
+        # Market price effect
+        if eff.market and market_engine and eff.market in market_engine.markets:
+            m = market_engine.markets[eff.market]
+            if eff.price_set is not None:
+                m.current_price = eff.price_set
+                m.price_history.append((tick, m.current_price))
+                results.append(f"market.{eff.market}.price_set={eff.price_set}")
+            elif eff.price_multiplier is not None:
+                m.current_price = round(m.current_price * eff.price_multiplier, 8)
+                cfg = m.config
+                m.current_price = max(cfg.get("min_price", 0), min(cfg.get("max_price", float("inf")), m.current_price))
+                m.price_history.append((tick, m.current_price))
+                results.append(f"market.{eff.market}.price×{eff.price_multiplier}={m.current_price}")
+
+        # Trust effect
+        if eff.trust_source and eff.trust_delta and relation_graph:
+            src = eff.trust_source
+            for tgt in target_ids:
+                if tgt != src:
+                    relation_graph.update_trust(src, tgt, eff.trust_delta)
+                    results.append(f"trust.{src}->{tgt} {'+' if eff.trust_delta >= 0 else ''}{eff.trust_delta}")
+
+        return results
 
 # ==========================================
 # 1. UI & LOGGING
@@ -46,6 +584,9 @@ class ConsoleLogger:
     def print_trade(self, agent_id, target, give_res, give_qty, take_res, take_qty, result):
         color = "\033[32m" if "SUCCESS" in str(result) else "\033[31m"
         print(f"\033[36m[{agent_id} → {target}] TRADE: {give_qty}×{give_res} ↔ {take_qty}×{take_res} → {color}{result}\033[0m")
+    def print_victory(self, text): print(f"\n\033[1;93m🏆 VICTORY: {text}\033[0m")
+    def print_market_fill(self, buyer, seller, qty, resource, price, currency):
+        print(f"\033[96m[MARKET] {buyer} ← {qty}×{resource} ← {seller} @ {price} {currency}\033[0m")
 # ==========================================
 # 2. DOXA AGENT
 # ==========================================
@@ -90,7 +631,7 @@ class DoxaAgent(autogen.ConversableAgent):
                 "config_list": [{
                     "model": model,
                     "api_type": "google",
-                    "api_key": config.get('api_key', 'AIzaSyABmY06JX28X0000_lKS875yf-WIXv7-70'),
+                    "api_key": config.get('api_key', os.environ.get('GOOGLE_API_KEY', '')),
                     "base_url": config.get('base_url', 'https://generativelanguage.googleapis.com/v1beta'),
                 }],
                 "temperature": 0.1,
@@ -128,11 +669,35 @@ class DoxaAgent(autogen.ConversableAgent):
         pending = self.env.get_pending_trades_for(self.agent_id)
         trade_info = "\nPENDING TRADES:\n" + ("None" if not pending else "\n".join(pending))
 
+        # Relations
+        rel_lines = []
+        graph = getattr(self.env, 'relation_graph', None)
+        if graph:
+            for rec in graph.get_relations_for(self.agent_id):
+                rel_lines.append(f"  {rec.target}: trust={rec.trust:.2f} ({rec.rel_type})")
+        relations_info = "\n=== RELATIONS ===\n" + ("\n".join(rel_lines) if rel_lines else "None")
+
+        # Market prices
+        market_lines = []
+        me = getattr(self.env, 'market_engine', None)
+        if me and me.markets:
+            for res, m in me.markets.items():
+                bb = m.best_bid()
+                ba = m.best_ask()
+                market_lines.append(
+                    f"  {res}/{m.currency}: last={m.current_price:.4f}"
+                    + (f" bid={bb:.4f}" if bb is not None else "")
+                    + (f" ask={ba:.4f}" if ba is not None else "")
+                )
+        market_info = "\n=== MARKETS ===\n" + ("\n".join(market_lines) if market_lines else "None")
+
         state_prompt = f"""{self.persona}
 === YOUR STATE ===
 ID: {self.agent_id} | PORTFOLIO: {portfolio}
 OTHERS: {other_agents}
 {trade_info}
+{relations_info}
+{market_info}
 
 === RULES ===
 1. You MUST use a tool to act.
@@ -148,22 +713,27 @@ OTHERS: {other_agents}
         can_think = self.config.get('can_think', True)
         can_chat = self.config.get('can_chat', True)
         can_rag = self.can_rag
+        trading_mode = self.config.get('trading_mode', 'otc')   # otc | lob | both
         # 1. Messaging
         def send_message(recipient: str, message: str) -> str:
             """Send a private message to another agent."""
             if recipient not in self.env.agents: return "Error: Recipient not found."
             self.logger.print_communication(self.agent_id, message, target=recipient)
             self.send(f"[PRIVATE] {message}", self.env.agents[recipient], request_reply=False, silent=True)
-
             return "Message sent."
         def broadcast(message: str) -> str:
             """Broadcast a message to all other agents."""
             self.logger.print_communication(self.agent_id, message, target="PUBLIC")
+            rel_dyn = self.env.global_rules.get('relation_dynamics', {})
+            broadcast_delta = rel_dyn.get('on_broadcast', {}).get('trust_delta', 0.01)
+            graph = getattr(self.env, 'relation_graph', None)
             for name, agent in self.env.agents.items():
                 if name != self.agent_id:
                     self.send(f"[PUBLIC] {self.agent_id}: {message}", agent, request_reply=False, silent=True)
+                    if graph and broadcast_delta:
+                        graph.update_trust(self.agent_id, name, broadcast_delta)
             return "Broadcast sent."
-        # 2. Trade
+        # 2. Trade (OTC)
         def make_trade_offer(target: str, give_res: str, give_qty: int, take_res: str, take_qty: int) -> str:
             """Propose a trade to target: give_qty of give_res for take_qty of take_res."""
             res = self.env.create_trade(self.agent_id, target, give_res, give_qty, take_res, take_qty)
@@ -176,7 +746,7 @@ OTHERS: {other_agents}
             if trade:
                 g_res, g_qty = list(trade['give'].items())[0]
                 t_res, t_qty = list(trade['take'].items())[0]
-                self.logger.print_trade(trade['from'], trade['to'], g_res, g_qty, t_res, t_qty, f"ACCEPTED: {res}")
+                self.logger.print_trade(trade['from_agent'], trade['to_agent'], g_res, g_qty, t_res, t_qty, f"ACCEPTED: {res}")
             else:
                 self.logger.print_action(self.agent_id, "accept_trade", trade_id, res)
             return res
@@ -187,10 +757,51 @@ OTHERS: {other_agents}
             if trade:
                 g_res, g_qty = list(trade['give'].items())[0]
                 t_res, t_qty = list(trade['take'].items())[0]
-                self.logger.print_trade(trade['from'], trade['to'], g_res, g_qty, t_res, t_qty, f"REJECTED: {res}")
+                self.logger.print_trade(trade['from_agent'], trade['to_agent'], g_res, g_qty, t_res, t_qty, f"REJECTED: {res}")
             else:
                 self.logger.print_action(self.agent_id, "reject_trade", trade_id, res)
             return res
+        # 3. LOB market tools
+        def place_buy_order(resource: str, quantity: float, max_price: float) -> str:
+            """Place a limit buy order on the market for the given resource at max_price per unit."""
+            me = getattr(self.env, 'market_engine', None)
+            if not me:
+                return "FAILED: No market engine configured."
+            tick = getattr(self.env, '_current_tick', 0)
+            return me.add_order(self.agent_id, "bid", resource, quantity, max_price, self.env.portfolios, tick)
+        def place_sell_order(resource: str, quantity: float, min_price: float) -> str:
+            """Place a limit sell order on the market for the given resource at min_price per unit."""
+            me = getattr(self.env, 'market_engine', None)
+            if not me:
+                return "FAILED: No market engine configured."
+            tick = getattr(self.env, '_current_tick', 0)
+            return me.add_order(self.agent_id, "ask", resource, quantity, min_price, self.env.portfolios, tick)
+        def cancel_order(order_id: str) -> str:
+            """Cancel one of your open market orders by its ID."""
+            me = getattr(self.env, 'market_engine', None)
+            if not me:
+                return "FAILED: No market engine configured."
+            return me.cancel_order(order_id, self.agent_id, self.env.portfolios)
+        def get_market_price(resource: str) -> str:
+            """Get the current last-trade price for a resource on the exchange."""
+            me = getattr(self.env, 'market_engine', None)
+            if not me:
+                return "FAILED: No market engine configured."
+            p = me.get_price(resource)
+            return f"Current price for {resource}: {p}" if p is not None else f"FAILED: No market for {resource}."
+        def get_order_book(resource: str) -> str:
+            """Get the top-of-book bids and asks for a resource (depth 5)."""
+            me = getattr(self.env, 'market_engine', None)
+            if not me:
+                return "FAILED: No market engine configured."
+            m = me.markets.get(resource)
+            if not m:
+                return f"FAILED: No market for {resource}."
+            book = m.top_of_book(depth=5)
+            lines = [f"=== ORDER BOOK: {resource}/{m.currency} (last={book['last_price']:.4f}) ==="]
+            lines.append("BIDS: " + ", ".join(f"{e['qty']}@{e['price']}" for e in book["bids"]) or "empty")
+            lines.append("ASKS: " + ", ".join(f"{e['qty']}@{e['price']}" for e in book["asks"]) or "empty")
+            return "\n".join(lines)
         def think(thought: str) -> str:
             self.logger.print_think(self.agent_id, thought)
             return "Thought logged."
@@ -229,8 +840,10 @@ OTHERS: {other_agents}
             self.send(f"[TASK] {task}", self.env.agents[sub_agent], request_reply=False, silent=True)
             return f"Task sent to {sub_agent}."
         available_tools = []
-        if can_trade:
+        if can_trade and trading_mode in ('otc', 'both'):
             available_tools += [make_trade_offer, accept_trade, reject_trade]
+        if can_trade and trading_mode in ('lob', 'both'):
+            available_tools += [place_buy_order, place_sell_order, cancel_order, get_market_price, get_order_book]
         if can_think:
             available_tools.append(think)
         if can_chat:
@@ -269,9 +882,10 @@ class SimulationEnvironment:
         import threading
         self.config = config
         self.global_rules = config.get('global_rules', {})
-        self.portfolios = {}
-        self.agents = {}
-        self.pending_trades = {}
+        # Backward-compat mutable dicts (also accessed via WorldState properties)
+        self._portfolios: Dict[str, Dict] = {}
+        self._agents: Dict[str, Any] = {}
+        self._pending_trades: Dict[str, Dict] = {}
         self.trade_counter = 1
         if logger is not None:
             self.log = logger
@@ -281,19 +895,65 @@ class SimulationEnvironment:
         self.agent_memories = {}
         self.rag_limit = rag_limit
         self._lock = threading.RLock()
+        self._current_tick: int = 0
 
+        # New subsystems — initialized/reset in reset()
+        self.relation_graph = RelationGraph()
+        self.market_engine: Optional[MarketEngine] = self._build_market_engine()
+        self.event_scheduler: Optional[WorldEventScheduler] = self._build_event_scheduler()
+
+    # ── backward-compat property shims ──────────────────────────────────────
+    @property
+    def portfolios(self) -> Dict[str, Dict]:
+        return self._portfolios
+
+    @portfolios.setter
+    def portfolios(self, v):
+        self._portfolios = v
+
+    @property
+    def agents(self) -> Dict[str, Any]:
+        return self._agents
+
+    @agents.setter
+    def agents(self, v):
+        self._agents = v
+
+    @property
+    def pending_trades(self) -> Dict[str, Dict]:
+        return self._pending_trades
+
+    @pending_trades.setter
+    def pending_trades(self, v):
+        self._pending_trades = v
+
+    # ── subsystem builders ───────────────────────────────────────────────────
+    def _build_market_engine(self) -> Optional["MarketEngine"]:
+        markets_cfg = self.global_rules.get('markets', [])
+        if not markets_cfg:
+            return None
+        return MarketEngine(markets_cfg)
+
+    def _build_event_scheduler(self) -> Optional["WorldEventScheduler"]:
+        events_cfg = self.config.get('world_events', [])
+        if not events_cfg:
+            return None
+        return WorldEventScheduler(events_cfg)
+
+    # ────────────────────────────────────────────────────────────────────────
     def reset(self, actors_cfg):
         with self._lock:
-            self.portfolios = {}
-            self.agents = {}
-            self.pending_trades = {}
+            self._portfolios = {}
+            self._agents = {}
+            self._pending_trades = {}
+            self._current_tick = 0
             # Non ricreare agent_memories se già esistono
             for actor in actors_cfg:
                 replicas = actor.get('replicas', 1)
                 for i in range(replicas):
                     a_id = f"{actor['id']}_{i+1}" if replicas > 1 else actor['id']
-                    self.portfolios[a_id] = deepcopy(actor['initial_portfolio'])
-                    self.agents[a_id] = DoxaAgent(a_id, actor, self)
+                    self._portfolios[a_id] = deepcopy(actor['initial_portfolio'])
+                    self._agents[a_id] = DoxaAgent(a_id, actor, self)
                     # Setup RAG memory solo se non esiste e se can_rag true
                     can_rag = actor.get('can_rag', True)
                     if can_rag and a_id not in self.agent_memories:
@@ -313,7 +973,7 @@ class SimulationEnvironment:
                         )
                         self.agent_memories[a_id] = memory
             # Cleanup memorie non più usate
-            to_remove = [aid for aid in self.agent_memories if aid not in self.portfolios]
+            to_remove = [aid for aid in self.agent_memories if aid not in self._portfolios]
             for aid in to_remove:
                 try:
                     self.agent_memories[aid].close()
@@ -321,14 +981,25 @@ class SimulationEnvironment:
                     pass
                 del self.agent_memories[aid]
             # Collega sub-agenti ai leader (dopo creazione agenti)
-            for a_id, agent in self.agents.items():
+            for a_id, agent in self._agents.items():
                 if getattr(agent, 'is_leader', False):
                     # Se non specificato, tutti tranne se stesso
                     if not agent.sub_agents:
-                        agent.sub_agents = [k for k in self.agents if k != a_id]
+                        agent.sub_agents = [k for k in self._agents if k != a_id]
                     else:
                         # Filtra solo quelli esistenti
-                        agent.sub_agents = [k for k in agent.sub_agents if k in self.agents]
+                        agent.sub_agents = [k for k in agent.sub_agents if k in self._agents]
+            # Init / reset subsystems
+            agent_ids = list(self._agents.keys())
+            self.relation_graph = RelationGraph()
+            self.relation_graph.init_from_yaml(
+                self.global_rules.get('relations', []), agent_ids
+            )
+            self.market_engine = self._build_market_engine()
+            if self.event_scheduler:
+                self.event_scheduler.reset()
+            else:
+                self.event_scheduler = self._build_event_scheduler()
 
     def save_memory_rag(self, agent_id, knowledge):
         """
@@ -365,7 +1036,7 @@ class SimulationEnvironment:
     def get_agent_memory_graph(self, agent_id: str, limit: int = 80):
         import asyncio
 
-        memory = self.env.agent_memories.get(agent_id)
+        memory = self.agent_memories.get(agent_id)
         if not memory:
             return {
                 "agent": agent_id,
@@ -468,16 +1139,19 @@ class SimulationEnvironment:
         Propose a trade to target
         """
         with self._lock:
-            if target not in self.portfolios: return "FAILED: Target not found"
-            if self.portfolios[sender].get(g_res, 0) < g_qty: return f"FAILED: You don't have {g_qty} {g_res}"
+            if target not in self._portfolios: return "FAILED: Target not found"
+            if self._portfolios[sender].get(g_res, 0) < g_qty: return f"FAILED: You don't have {g_qty} {g_res}"
             tid = f"TRD_{self.trade_counter}"
             self.trade_counter += 1
-            self.pending_trades[tid] = {
-                "from": sender, "to": target, 
+            self._pending_trades[tid] = {
+                "id": tid,
+                "from_agent": sender, "to_agent": target,
+                # backward-compat keys for any JSON views
+                "from": sender, "to": target,
                 "give": {g_res: g_qty}, "take": {t_res: t_qty}
             }
             # Notifica il target tramite AutoGen
-            self.agents[sender].send(f"I offered you {tid}: {g_qty} {g_res} for {t_qty} {t_res}", self.agents[target], request_reply=False, silent=True)
+            self._agents[sender].send(f"I offered you {tid}: {g_qty} {g_res} for {t_qty} {t_res}", self._agents[target], request_reply=False, silent=True)
             return f"SUCCESS: {tid} created"
 
     def resolve_trade(self, responder, tid, accept):
@@ -485,48 +1159,58 @@ class SimulationEnvironment:
         Reply to a trade offer (accept/reject)
         """
         with self._lock:
-            trade = self.pending_trades.get(tid)
-            if not trade or trade['to'] != responder: return "FAILED: Trade not found or not for you"
-            sender = trade['from']
+            trade = self._pending_trades.get(tid)
+            if not trade or trade['to_agent'] != responder: return "FAILED: Trade not found or not for you"
+            sender = trade['from_agent']
+            rel_dyn = self.global_rules.get('relation_dynamics', {})
             if not accept:
-                del self.pending_trades[tid]
+                del self._pending_trades[tid]
+                # Trust penalty on rejection
+                reject_delta = rel_dyn.get('on_trade_rejected', {}).get('trust_delta', -0.02)
+                if reject_delta:
+                    self.relation_graph.update_trust(responder, sender, reject_delta)
                 return "SUCCESS: Trade rejected"
             # Check resources for both
             g_res, g_qty = list(trade['give'].items())[0]
             t_res, t_qty = list(trade['take'].items())[0]
-            if self.portfolios[sender].get(g_res, 0) < g_qty: return "FAILED: Sender no longer has resources"
-            if self.portfolios[responder].get(t_res, 0) < t_qty: return "FAILED: You don't have resources"
-            agentAConstraints = self.agents[sender].constraints
-            agentBConstraints = self.agents[responder].constraints
+            if self._portfolios[sender].get(g_res, 0) < g_qty: return "FAILED: Sender no longer has resources"
+            if self._portfolios[responder].get(t_res, 0) < t_qty: return "FAILED: You don't have resources"
+            agentAConstraints = self._agents[sender].constraints
+            agentBConstraints = self._agents[responder].constraints
             if agentAConstraints is None: agentAConstraints = {}
             if agentBConstraints is None: agentBConstraints = {}
-            if agentAConstraints.get(g_res, {}).get('min', float('-inf')) > self.portfolios[sender].get(g_res, 0) - g_qty: return "FAILED: Sender would violate constraints"
-            if agentAConstraints.get(g_res, {}).get('max', float('inf')) < self.portfolios[sender].get(g_res, 0) - g_qty: return "FAILED: Sender would violate constraints"
-            if agentAConstraints.get(t_res, {}).get('min', float('-inf')) > self.portfolios[sender].get(t_res, 0) + t_qty: return "FAILED: Sender would violate constraints"
-            if agentAConstraints.get(t_res, {}).get('max', float('inf')) <  self.portfolios[sender].get(t_res, 0) + t_qty: return "FAILED: Sender would violate constraints"
-            if agentBConstraints.get(t_res, {}).get('min', float('-inf')) > self.portfolios[responder].get(t_res, 0) - t_qty: return "FAILED: Responder would violate constraints"
-            if agentBConstraints.get(t_res, {}).get('max', float('inf')) <  self.portfolios[responder].get(t_res, 0) - t_qty: return "FAILED: Responder would violate constraints"
-            if agentBConstraints.get(g_res, {}).get('min', float('-inf')) > self.portfolios[responder].get(g_res, 0) + g_qty: return "FAILED: Responder would violate constraints"
-            if agentBConstraints.get(g_res, {}).get('max', float('inf')) < self.portfolios[responder].get(g_res, 0) + g_qty: return "FAILED: Responder would violate constraints"
+            if agentAConstraints.get(g_res, {}).get('min', float('-inf')) > self._portfolios[sender].get(g_res, 0) - g_qty: return "FAILED: Sender would violate constraints"
+            if agentAConstraints.get(g_res, {}).get('max', float('inf')) < self._portfolios[sender].get(g_res, 0) - g_qty: return "FAILED: Sender would violate constraints"
+            if agentAConstraints.get(t_res, {}).get('min', float('-inf')) > self._portfolios[sender].get(t_res, 0) + t_qty: return "FAILED: Sender would violate constraints"
+            if agentAConstraints.get(t_res, {}).get('max', float('inf')) <  self._portfolios[sender].get(t_res, 0) + t_qty: return "FAILED: Sender would violate constraints"
+            if agentBConstraints.get(t_res, {}).get('min', float('-inf')) > self._portfolios[responder].get(t_res, 0) - t_qty: return "FAILED: Responder would violate constraints"
+            if agentBConstraints.get(t_res, {}).get('max', float('inf')) <  self._portfolios[responder].get(t_res, 0) - t_qty: return "FAILED: Responder would violate constraints"
+            if agentBConstraints.get(g_res, {}).get('min', float('-inf')) > self._portfolios[responder].get(g_res, 0) + g_qty: return "FAILED: Responder would violate constraints"
+            if agentBConstraints.get(g_res, {}).get('max', float('inf')) < self._portfolios[responder].get(g_res, 0) + g_qty: return "FAILED: Responder would violate constraints"
             # Rollbackable swap
-            self.portfolios[sender][g_res] -= g_qty
-            self.portfolios[responder][g_res] += g_qty
-            self.portfolios[responder][t_res] -= t_qty
-            self.portfolios[sender][t_res] += t_qty
-            del self.pending_trades[tid]
+            self._portfolios[sender][g_res] -= g_qty
+            self._portfolios[responder][g_res] += g_qty
+            self._portfolios[responder][t_res] -= t_qty
+            self._portfolios[sender][t_res] += t_qty
+            del self._pending_trades[tid]
+            # Trust bonus on success (bidirectional)
+            success_delta = rel_dyn.get('on_trade_success', {}).get('trust_delta', 0.03)
+            if success_delta:
+                self.relation_graph.update_trust(sender, responder, success_delta)
+                self.relation_graph.update_trust(responder, sender, success_delta)
             return "SUCCESS: Trade completed"
 
     def get_pending_trades_for(self, agent_id):
-        return [f"- {tid} from {t['from']}: Wants {t['take']} for {t['give']}" 
-                for tid, t in self.pending_trades.items() if t['to'] == agent_id]
+        return [f"- {tid} from {t['from_agent']}: Wants {t['take']} for {t['give']}" 
+                for tid, t in self._pending_trades.items() if t['to_agent'] == agent_id]
 
     def execute_operation(self, actor_id, op_name, target_id=None, multiplier=1):
         with self._lock:
-            ops = {**self.global_rules.get('operations', {}), **self.agents[actor_id].config.get('operations', {})}
+            ops = {**self.global_rules.get('operations', {}), **self._agents[actor_id].config.get('operations', {})}
             op = ops.get(op_name)
             if not op:
                 return f"FAILED: Operation '{op_name}' not found."
-            port = self.portfolios[actor_id]
+            port = self._portfolios[actor_id]
             before = deepcopy(port)
             tbefore = None
             try:
@@ -537,32 +1221,32 @@ class SimulationEnvironment:
                 if port.get(r, 0) < v * multiplier: return f"FAILED: Missing {r}"
             for r, v in op.get('input', {}).items(): port[r] -= v * multiplier
             for r, v in op.get('output', {}).items(): port[r] = port.get(r, 0) + v * multiplier
-            if target_id and 'target_impact' in op and target_id in self.portfolios:
-                tbefore = deepcopy(self.portfolios[target_id])
-                if target_id in self.portfolios:
+            if target_id and 'target_impact' in op and target_id in self._portfolios:
+                tbefore = deepcopy(self._portfolios[target_id])
+                if target_id in self._portfolios:
                     for r, v in op['target_impact'].items():
-                        self.portfolios[target_id][r] = self.portfolios[target_id].get(r, 0) + v * multiplier
+                        self._portfolios[target_id][r] = self._portfolios[target_id].get(r, 0) + v * multiplier
                 if self.log:
                     self.log.print(f"Target delta on {target_id}")
-                    self.log.print_delta(tbefore, self.portfolios[target_id])
+                    self.log.print_delta(tbefore, self._portfolios[target_id])
             rollback = False
-            constraints = self.agents[actor_id].constraints
+            constraints = self._agents[actor_id].constraints
             for r, c in constraints.items():
                 if port.get(r, 0) < c.get('min', float('-inf')): rollback = True
                 if port.get(r, 0) > c.get('max', float('inf')): rollback = True
-            if target_id and target_id in self.portfolios:
-                constraints = self.agents[target_id].constraints
+            if target_id and target_id in self._portfolios:
+                constraints = self._agents[target_id].constraints
                 for r, c in constraints.items():
-                    if self.portfolios[target_id].get(r, 0) < c.get('min', float('-inf')): rollback = True
-                    if self.portfolios[target_id].get(r, 0) > c.get('max', float('inf')): rollback = True
+                    if self._portfolios[target_id].get(r, 0) < c.get('min', float('-inf')): rollback = True
+                    if self._portfolios[target_id].get(r, 0) > c.get('max', float('inf')): rollback = True
             if rollback == True:
-                self.portfolios[actor_id] = before
+                self._portfolios[actor_id] = before
                 if target_id and tbefore is not None:
-                    self.portfolios[target_id] = tbefore
+                    self._portfolios[target_id] = tbefore
                 return "FAILED: Constraint violation, operation rolled back."
             if self.log:
                 self.log.print(f"Main delta on {actor_id}")
-                self.log.print_delta(before, self.portfolios[actor_id])
+                self.log.print_delta(before, self._portfolios[actor_id])
             return "SUCCESS"
 
 # ==========================================
@@ -614,8 +1298,8 @@ class DoxaChatbot(autogen.ConversableAgent):
             return yaml.dump(self.engine.raw_config)
         # Tool: get_state
         def get_state_tool() -> str:
-            """Restituisce lo stato attuale (portafogli, trades, agenti)."""
-            return self.engine.export_data({"agents": True, "portfolios": True, "trades": True, "resources": True}, format="json")
+            """Returns the current simulation state: portfolios, trades, agents, markets, and relations."""
+            return self.engine.export_data({"agents": True, "portfolios": True, "trades": True, "resources": True, "markets": True, "relations": True}, format="json")
         self.register_for_llm(name="export_data", description=export_data_tool.__doc__)(export_data_tool)
         self.register_for_execution(name="export_data")(export_data_tool)
         self.register_for_llm(name="get_yaml", description=get_yaml_tool.__doc__)(get_yaml_tool)
@@ -691,6 +1375,7 @@ class DoxaEngineV26:
         parsed = yaml.safe_load(yaml_text) or {}
         self._validate_config_dict(parsed)
         self.raw_config = parsed
+        self.global_rules = self.raw_config.get("global_rules", {})
         self.config_text = yaml_text.strip() + "\n"
         self.config_source = {"kind": source_kind, "value": source_value}
         self.env = SimulationEnvironment(self.raw_config, log_verbose=self.log_verbose, rag_limit=self.rag_limit, logger=self.logger)
@@ -798,7 +1483,7 @@ class DoxaEngineV26:
                 break
 
         constraints = {
-            **deepcopy(self.raw_config.get("global_rules", {}).get("constraints", {})),
+            **deepcopy(self.global_rules.get("constraints", {})),
             **deepcopy(actor.get("constraints", {})),
         }
         return {
@@ -904,6 +1589,8 @@ class DoxaEngineV26:
             **last,
             "agents_alive": self.list_agents(),
             "status": self.get_status(),
+            "markets": self.get_markets(),
+            "relations": self.get_relations(),
         }
 
     def stop_current_run(self, wait: bool = True):
@@ -984,7 +1671,10 @@ class DoxaEngineV26:
                 raise RuntimeError(f"Agent '{selected_agent}' not found.")
         if self.log:
             self.log.print_step(self.current_step)
+        self.env._current_tick = self.current_step
         self._step_agent(selected_agent)
+        self._run_market_clearing()
+        self._run_world_events()
         self.record_snapshot("manual_step", selected_agent)
         return self.get_status()
 
@@ -996,24 +1686,37 @@ class DoxaEngineV26:
         return not self._stop_event.is_set()
 
     def _apply_maintenance(self, ids):
-        maintenance = self.raw_config.get("maintenance", {})
+        maintenance = self.global_rules.get("maintenance", {})
+        rel_dyn = self.global_rules.get("relation_dynamics", {})
+        trust_decay = rel_dyn.get("trust_decay_rate", 0.0)
+        panic_decay = rel_dyn.get("panic_decay_rate", 0.0)
+
         for agent_id in list(ids):
             if agent_id not in self.env.agents:
                 continue
             for resource_name, amount in maintenance.items():
                 self.env.portfolios[agent_id][resource_name] = self.env.portfolios[agent_id].get(resource_name, 0) - amount
-            kill_conds = self.raw_config.get("kill_conditions", []) + self.env.agents[agent_id].config.get("kill_conditions", [])
+            # Decay panic resource toward 0 (clamp at 0)
+            if panic_decay and "panic" in self.env.portfolios[agent_id]:
+                current_panic = self.env.portfolios[agent_id]["panic"]
+                self.env.portfolios[agent_id]["panic"] = max(0.0, current_panic - panic_decay)
+            kill_conds = self.global_rules.get("kill_conditions", []) + self.env.agents[agent_id].config.get("kill_conditions", [])
             for cond in kill_conds:
                 resource_name = cond["resource"]
                 threshold = cond["threshold"]
                 if self.env.portfolios[agent_id].get(resource_name, 0) <= threshold:
                     if self.log:
                         self.log.print_kill(agent_id, f"Condition met: {resource_name} <= {threshold}")
+                    self.record_event({"type": "kill", "agent": agent_id, "reason": f"{resource_name} <= {threshold}"})
                     if agent_id in self.env.agents:
                         del self.env.agents[agent_id]
                     if agent_id in self.env.portfolios:
                         del self.env.portfolios[agent_id]
                     break
+
+        # Trust decay toward neutral
+        if trust_decay:
+            self.env.relation_graph.decay_all(trust_decay)
 
     def godmode(self, action: str, params: dict) -> str:
         if action == 'inject_resource':
@@ -1070,7 +1773,7 @@ class DoxaEngineV26:
     def export_data(self, query: dict, format: str = "json"):
         result = {}
         if query is None or not isinstance(query, dict) or len(query) == 0:
-            query = {"agents": True, "portfolios": True, "trades": True, "history": True, "resources": True}
+            query = {"agents": True, "portfolios": True, "trades": True, "history": True, "resources": True, "markets": True, "relations": True}
         if query.get("agents"):
             result["agents"] = list(self.env.agents.keys())
         if "portfolios" in query:
@@ -1085,6 +1788,10 @@ class DoxaEngineV26:
                 "totals": self._compute_totals(),
                 "agents": {agent_id: dict(values) for agent_id, values in self.env.portfolios.items()},
             }
+        if query.get("markets"):
+            result["markets"] = self.get_markets()
+        if query.get("relations"):
+            result["relations"] = self.get_relations()
         if query.get("history"):
             result["history"] = {
                 "events": self.event_history,
@@ -1171,9 +1878,9 @@ class DoxaEngineV26:
     def run(self):
         try:
             self._reset_runtime_storage()
-            epochs = self.raw_config['global_rules'].get('epochs', 1)
-            steps = self.raw_config['global_rules'].get('steps', 5)
-            mode = self.raw_config['global_rules'].get('execution_mode', 'sequential')
+            epochs = self.global_rules.get('epochs', 1)
+            steps = self.global_rules.get('steps', 5)
+            mode = self.global_rules.get('execution_mode', 'sequential')
             for epoch_index in range(epochs):
                 if self._stop_event.is_set():
                     break
@@ -1191,6 +1898,7 @@ class DoxaEngineV26:
                     if not self._wait_if_paused():
                         break
                     self.current_step = step_index + 1
+                    self.env._current_tick = self.current_step
                     if self.log:
                         self.log.print_step(self.current_step)
                     ids = list(self.env.agents.keys())
@@ -1209,6 +1917,10 @@ class DoxaEngineV26:
                         with ThreadPoolExecutor() as executor:
                             executor.map(self._step_agent, active_ids)
                         self.record_snapshot("step_complete")
+                    # Market clearing (per_step markets)
+                    self._run_market_clearing()
+                    # World events
+                    self._run_world_events()
                 for agent_id in list(self.env.agents.keys()):
                     self.check_victory_conditions(agent_id)
             with self._state_lock:
@@ -1287,21 +1999,91 @@ class DoxaEngineV26:
             self.log.print_think(a_id, f"(Implicit) {reply}")
         self.check_victory_conditions(a_id)
 
+    def _run_market_clearing(self):
+        """Run per_step market clearing and record fill events."""
+        me = self.env.market_engine
+        if not me:
+            return
+        for resource, market in me.markets.items():
+            if market.config.get("clearing", "per_step") == "per_step":
+                fills = me.clear_market(resource, self.env.portfolios, self.current_step)
+                for fill in fills:
+                    self.record_event({"type": "market_fill", **fill})
+                    if self.log:
+                        self.log.print_market_fill(
+                            fill["buyer"], fill["seller"],
+                            fill["fill_qty"], fill["resource"],
+                            fill["fill_price"], market.currency,
+                        )
+
+    def _run_world_events(self):
+        """Tick the world event scheduler and record any fired events."""
+        scheduler = self.env.event_scheduler
+        if not scheduler:
+            return
+        fired = scheduler.tick(
+            portfolios=self.env.portfolios,
+            agents=self.env.agents,
+            market_engine=self.env.market_engine,
+            relation_graph=self.env.relation_graph,
+            engine_ref=self,
+            current_tick=self.current_step,
+        )
+        for ev_record in fired:
+            self.record_event({"type": "world_event", **ev_record})
+            if self.log:
+                self.log.print(f"[WORLD EVENT] {ev_record['name']} ({ev_record['type']}): {ev_record.get('effects', [])}")
+
+    def get_markets(self) -> Dict:
+        """Return market summary for API."""
+        me = self.env.market_engine
+        if not me:
+            return {}
+        return me.summary()
+
+    def get_market_orderbook(self, resource: str, depth: int = 10) -> Optional[Dict]:
+        """Return full order book for a resource."""
+        me = self.env.market_engine
+        if not me:
+            return None
+        m = me.markets.get(resource)
+        if not m:
+            return None
+        return {**m.top_of_book(depth), "resource": resource, "currency": m.currency}
+
+    def get_market_price_history(self, resource: str) -> Optional[Dict]:
+        """Return price history for a resource market."""
+        me = self.env.market_engine
+        if not me:
+            return None
+        m = me.markets.get(resource)
+        if not m:
+            return None
+        return {"resource": resource, "prices": [{"tick": t, "price": p} for t, p in m.price_history]}
+
+    def get_relations(self) -> List[Dict]:
+        """Return full relation graph as list of relation records."""
+        return self.env.relation_graph.to_list()
+
     def check_victory_conditions(self, a_id):
         if a_id not in self.env.agents or a_id not in self.env.portfolios:
             return
-        conditions = self.raw_config.get('victory_conditions', []) + self.env.agents[a_id].config.get('victory_conditions', [])
+        conditions = self.global_rules.get('victory_conditions', []) + self.env.agents[a_id].config.get('victory_conditions', [])
         for cond in conditions:
             resource_name = cond['resource']
             threshold = cond['threshold']
             scope = cond.get('scope', 'global')
             if scope == 'individual':
                 if self.env.portfolios[a_id].get(resource_name, 0) >= threshold:
-                    self.log.print_victory(f"{a_id} wins with {resource_name} = {self.env.portfolios[a_id].get(resource_name, 0)}")
+                    if self.log:
+                        self.log.print_victory(f"{a_id} wins with {resource_name} = {self.env.portfolios[a_id].get(resource_name, 0)}")
+                    self.record_event({"type": "victory", "agent": a_id, "resource": resource_name, "value": self.env.portfolios[a_id].get(resource_name, 0)})
             else:
                 for agent_id, portfolio in self.env.portfolios.items():
                     if portfolio.get(resource_name, 0) >= threshold:
-                        self.log.print_victory(f"{agent_id} wins with {resource_name} = {portfolio.get(resource_name, 0)}")
+                        if self.log:
+                            self.log.print_victory(f"{agent_id} wins with {resource_name} = {portfolio.get(resource_name, 0)}")
+                        self.record_event({"type": "victory", "agent": agent_id, "resource": resource_name, "value": portfolio.get(resource_name, 0)})
         
 
 
@@ -1310,17 +2092,17 @@ class DoxaEngineV26:
 # ==========================================
 config_yaml = """
 global_rules:
-  epochs: 1
-  steps: 10
-  execution_mode: 'sequential'
+    epochs: 1
+    steps: 10
+    execution_mode: 'sequential'
 
-maintenance: {corn: 1}
-  
-kill_conditions:
-  - {resource: 'corn', threshold: 0} 
-    
-victory_conditions:
-  - {resource: 'gold', threshold: 100}  # threshold può essere 'min', 'max', 'count'
+    maintenance: {corn: 1}
+
+    kill_conditions:
+    - {resource: 'corn', threshold: 0} 
+        
+    victory_conditions:
+    - {resource: 'gold', threshold: 100}  # threshold può essere 'min', 'max', 'count'
 
 actors:
   - id: 'player'

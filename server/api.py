@@ -93,9 +93,12 @@ class SocketLogger:
             "take": {"resource": take_res, "qty": take_qty},
             "result": result,
         })
+    def print_market_fill(self, buyer, seller, qty, resource, price, currency):
+        self._emit({"type": "market_fill", "buyer": buyer, "seller": seller,
+                    "qty": qty, "resource": resource, "price": price, "currency": currency})
 
 # Tipi di eventi che richiedono l'emissione di uno snapshot WS
-_SNAPSHOT_TRIGGER_TYPES = {"step", "kill", "victory", "reset", "epoch", "manual_step", "config_updated", "config_loaded"}
+_SNAPSHOT_TRIGGER_TYPES = {"step", "kill", "victory", "reset", "epoch", "manual_step", "config_updated", "config_loaded", "market_fill", "world_event"}
 
 # --- Worker Asincrono ---
 async def socket_worker():
@@ -319,6 +322,36 @@ def get_agent(agent_id: str):
     if not details:
         return JSONResponse(status_code=404, content={"error": "Agent not found"})
     return details
+
+# ── Market endpoints ─────────────────────────────────────────────────────────
+
+@app.get("/api/markets")
+def get_markets():
+    return {"markets": engine.get_markets()}
+
+
+@app.get("/api/markets/{resource}/orderbook")
+def get_market_orderbook(resource: str, depth: int = Query(default=10, ge=1, le=100)):
+    book = engine.get_market_orderbook(resource, depth)
+    if book is None:
+        return JSONResponse(status_code=404, content={"error": f"No market for '{resource}'"})
+    return book
+
+
+@app.get("/api/markets/{resource}/price_history")
+def get_market_price_history(resource: str):
+    history = engine.get_market_price_history(resource)
+    if history is None:
+        return JSONResponse(status_code=404, content={"error": f"No market for '{resource}'"})
+    return history
+
+
+# ── Relations endpoint ───────────────────────────────────────────────────────
+
+@app.get("/api/relations")
+def get_relations():
+    return {"relations": engine.get_relations()}
+
 
 @app.websocket("/ws/events")
 async def websocket_endpoint(websocket: WebSocket):
