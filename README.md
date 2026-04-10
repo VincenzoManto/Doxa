@@ -1,81 +1,322 @@
-Doxa è un sistema composto da un motore Python (DoxaEngine) e un server API che espone le funzionalità del motore tramite HTTP e WebSocket. La struttura principale è la seguente:
+# Doxa: A Multi-Agent Simulation Platform for Economic and Social Dynamics
 
-- Il backend, scritto in Python, utilizza FastAPI per fornire un'API REST e due endpoint WebSocket:
-  1. `/ws/agents`: per azioni in tempo reale degli agenti, chat e gestione dei portafogli personali.
-  2. `/ws/resources`: per aggiornamenti in tempo reale sulle risorse.
+### 2026
 
-- Il cuore del sistema è il motore (DoxaEngine), che gestisce agenti (DoxaAgent) configurabili tramite YAML e dotati di una "persona", regole, capacità di ragionamento (RAG), e possibilità di essere leader di sottogruppi di agenti.
+#### Vincenzo Manto, Riccardo Dal Cero
 
-- Il motore implementa logging avanzato su console, gestione di memoria vettoriale (ChromaDB), e supporta l'integrazione con modelli di AI (ad esempio, tramite autogen, vertexai, google-genai).
+## Introduction
 
-- Il sistema è pensato per simulazioni multi-agente, dove ogni agente può interagire, comunicare, prendere decisioni e agire in un ambiente condiviso, seguendo regole globali e locali.
+Multi-agent simulation is a cornerstone of computational social science,
+economics, and artificial intelligence. Doxa addresses the need for a
+flexible, reproducible, and extensible platform that enables researchers
+to model complex agent interactions, market mechanisms, and world
+events, leveraging modern AI models for agent reasoning. This paper
+details the Doxa platform, its YAML-driven configuration, and its
+application to economic and social simulation.
 
-- La comunicazione tra frontend e backend avviene tramite API REST e WebSocket, permettendo sia richieste sincrone che aggiornamenti in tempo reale.
+## Related Work
 
-Doxa è una piattaforma Python per simulazioni multi-agente, con API web e supporto per AI generativa, progettata per essere estendibile e integrabile in contesti di simulazione, ricerca o sviluppo di agenti autonomi.
+Agent-based modeling has a long tradition, with platforms such as
+NetLogo, MASON, and Repast. Recent advances integrate AI and machine
+learning for agent reasoning (e.g., OpenAI Gym, PettingZoo). Doxa
+distinguishes itself by combining declarative scenario modeling,
+generative AI integration, and a rich economic/market simulation
+toolkit, all accessible via a modern API.
 
-### Architettura Doxa
+## System Overview
 
-**1. Scenario YAML**
-- È il punto di partenza: definisce lo scenario simulato, gli attori (social_groups), le loro caratteristiche, relazioni e parametri contestuali.
-- Ogni attore ha una “persona”, un’influenza, un canale di comunicazione e bias emotivi.
-- Le relazioni tra attori (fiducia, alleanze, ostilità) sono esplicitate.
+Doxa consists of a Python backend (DoxaEngine) and a web API server
+(FastAPI), exposing REST and WebSocket endpoints. Scenarios are
+specified in a single YAML file, which defines global rules, agent
+types, resources, markets, and world events. The engine parses this
+schema, instantiates agents, manages state, and orchestrates simulation
+steps. Agents are parameterized by persona, resource portfolio,
+behavioral rules, and can be linked to LLM providers (OpenAI, Google,
+Ollama, etc.).
 
-**2. Engine**
-- Carica il file YAML e crea una rappresentazione interna dello scenario.
-- Per ogni attore definito, istanzia un agente software con le proprietà e i comportamenti specificati.
-- Gestisce lo stato globale della simulazione: portafogli, memoria, scambi, regole.
-- Fornisce strumenti standard (messaggistica, scambi, pensiero, memoria, task) e strumenti custom definiti nello YAML.
+## YAML Scenario Schema {#sec:schema}
 
-**3. Agenti**
-- Ogni agente rappresenta un attore sociale o organizzativo dello scenario.
-- Gli agenti possono comunicare, negoziare, pensare, apprendere e agire secondo regole e vincoli.
-- Possono essere organizzati gerarchicamente (leader/sub-agenti).
+The scenario YAML file is the core of Doxa's reproducibility and
+flexibility. It defines:
 
-**4. Memoria e RAG**
-- Ogni agente può avere una memoria vettoriale persistente per accumulare conoscenza durante la simulazione.
-- Questa memoria può essere interrogata e aggiornata dagli agenti stessi.
+-   **global_rules**: Simulation-wide settings (timing, maintenance,
+    kill/victory conditions, constraints, operations, markets,
+    relations, dynamics).
 
-**5. API e Interfacce**
-- Il sistema espone API REST e WebSocket per interazione in tempo reale, controllo e monitoraggio.
-- Permette l’integrazione con frontend, dashboard o altri sistemi.
+-   **actors**: List of agent types, each with identity, persona,
+    initial portfolio, constraints, operations, trading mode, and
+    economic parameters.
 
----
+-   **world_events**: Optional list of scheduled or conditional events
+    that affect resources, markets, or trust.
 
-Doxa è una piattaforma di simulazione multi-agente guidata da scenario YAML, dove ogni attore è modellato come agente autonomo dotato di strumenti, memoria e regole. L’engine orchestra la simulazione, mentre le API permettono il controllo e la visualizzazione esterna.
+See Section [10](#sec:case-study){reference-type="ref"
+reference="sec:case-study"} for a concrete example (hormuz.yaml).
 
+## Engine Architecture {#sec:engine}
 
+The Doxa engine is organized into modular subsystems, each responsible
+for a core aspect of the simulation. The main components are described
+below, with references to the codebase (`server/engine/`) and YAML
+schema fields.
 
-### ENGINE (engine.py)
+### Economic Subsystem
 
-- **DoxaAgent**: ogni agente è un oggetto che eredita da ConversableAgent e viene configurato tramite un dizionario (`config`) che deriva dal file YAML di scenario.
-  - Attributi chiave: `persona` (descrizione comportamentale), `is_leader` (se può comandare sub-agenti), `can_rag` (abilita memoria vettoriale/RAG), `constraints` (regole globali e locali).
-  - Supporta diversi provider di LLM (Ollama, OpenAI, Google, Grok) configurabili via YAML.
-  - Registra strumenti standard: messaggistica privata/pubblica, proposte di scambio, accettazione/rifiuto scambi, pensiero interno, salvataggio e interrogazione della memoria RAG, assegnazione task (solo leader).
-  - Registra anche operazioni custom definite nel file YAML (sezione `operations`).
+The economic logic of each agent is governed by the `AgentEconomics`
+module and the economic parameters defined in the YAML (e.g., utility
+function, risk aversion, discount factor). Agents can be risk-neutral or
+risk-averse (CRRA, CARA), and their decision-making incorporates
+liquidity preferences and price expectations. The economic subsystem
+ensures that agent actions (trades, operations) are consistent with
+their economic profile, and computes utility and risk metrics for
+analysis.
 
-- **SimulationEnvironment**: gestisce l’ambiente simulato.
-  - Carica la configurazione globale e degli agenti.
-  - Tiene traccia di portafogli, agenti, scambi pendenti, memoria RAG per ogni agente.
-  - Metodo `reset`: crea agenti e portafogli a partire dalla configurazione YAML, supporta repliche di agenti, inizializza la memoria vettoriale per il RAG.
+### Market Subsystem
 
-- **Memoria RAG**: ogni agente può avere una memoria vettoriale persistente (ChromaDB) per salvare e recuperare conoscenza testuale.
+Markets are managed by the `MarketEngine` and `Market` classes. Doxa
+supports both over-the-counter (OTC) bilateral trades and centralized
+limit order books (LOBs) for each resource. Market configuration is
+fully declarative in YAML, including price bounds, clearing modes (per
+step, on order, call auction), and synthetic market makers (with
+configurable spread, depth, and inventory skew). The market subsystem
+matches orders, applies price impact, and enforces slippage and
+constraints, providing a realistic trading environment for agents.
 
-- **Interazione**: gli agenti possono comunicare, negoziare, pensare, salvare/condividere conoscenza, e (se leader) assegnare task ai sub-agenti. Tutte le azioni sono strumenti registrati e invocabili solo tramite tool, non con testo libero.
+### Relations Subsystem
 
----
+Social and trust relations are modeled as a directed, weighted graph
+managed by the `RelationGraph` and `RelationRecord` modules. Initial
+trust levels and relation types (ally, neutral, rival, enemy) are seeded
+from YAML. Trust dynamics are updated in response to agent actions
+(successful/rejected trades, broadcasts) and world events, with support
+for trust decay and contagion. Relations influence agent
+decision-making, negotiation, and the spread of events (e.g., panic
+contagion).
 
-### FILE YAML DI SCENARIO (hormuz.yaml)
+### Communication Subsystem
 
-- **scenario_name/scenario_description**: nome e descrizione testuale dello scenario geopolitico simulato.
+Agents interact via private messages, public broadcasts, and negotiation
+protocols. The `DoxaAgent` class registers communication tools (send
+message, broadcast, propose trade, accept/reject trade) based on agent
+capabilities. Communication is event-driven and can trigger trust
+updates or world events. The communication subsystem is extensible,
+allowing custom tools to be defined in the YAML scenario.
 
-- **social_groups**: elenco dei gruppi sociali/attori simulati, ognuno con:
-  - `id`: identificativo univoco.
-  - `persona`: descrizione comportamentale e strategica.
-  - `influence`: peso/influenza nello scenario.
-  - `platform`: canale di comunicazione principale.
-  - `emotional_bias`: bias emotivo dominante.
+### Resource Management
 
-- **relationships**: relazioni tra gruppi, con livello di fiducia e descrizione qualitativa.
+Resources are the fundamental quantities tracked in agent portfolios and
+markets. The `SimulationEnvironment` maintains the state of all
+resources, applies maintenance costs, and enforces constraints (min/max
+bounds) at both global and agent levels. Resource transfers occur via
+operations, trades, market transactions, and world events. The engine
+ensures that all resource changes are validated and rolled back if
+constraints are violated.
 
-- **tags/extra**: metadati per categorizzare e localizzare lo scenario.
+### Events Subsystem
+
+World events are managed by the `WorldEventScheduler` and
+`WorldEventEffect` modules. Events can be scheduled (shocks, trends) or
+triggered by conditions (resource thresholds, agent states). Effects
+include resource changes, market price shifts, trust updates, and
+contagion. The event subsystem supports complex, multi-step event logic,
+enabling rich scenario evolution and exogenous shocks.
+
+### API and Integration
+
+The API layer is implemented using FastAPI and exposes both REST and
+WebSocket endpoints. The REST API provides scenario management,
+simulation control, and data retrieval. The WebSocket endpoints
+(`/ws/agents`, `/ws/resources`) enable real-time streaming of agent
+actions, resource updates, and chat. The API is designed for integration
+with custom frontends, dashboards, and external controllers, supporting
+both synchronous and asynchronous workflows.
+
+## Agent Model and Reasoning
+
+Agents in Doxa are autonomous, configurable entities. Each agent is
+defined by a persona, initial resources, constraints, and a set of
+operations. Agents can communicate, negotiate, trade (OTC and LOB),
+reason internally, and manage persistent vector memory (RAG via
+ChromaDB). Hierarchical organization (leaders and sub-agents) is
+supported. LLM integration enables advanced reasoning and language-based
+interaction.
+
+## Market and Economic Simulation
+
+Doxa supports both OTC and limit order book (LOB) trading, with
+configurable market parameters (price bounds, clearing modes, market
+makers). Economic behavior is further shaped by agent-level utility
+functions, risk aversion, and liquidity preferences. The engine enforces
+constraints and rollbacks for infeasible operations.
+
+## World Events and Dynamics
+
+World events can be scheduled (shocks, trends) or triggered by
+conditions (e.g., resource thresholds). Effects include resource
+changes, market price shifts, trust updates, and contagion. The YAML
+schema supports complex event logic, enabling rich scenario evolution.
+
+## API and Integration
+
+The backend exposes a REST API and two WebSocket endpoints: `/ws/agents`
+for real-time agent actions, chat, and portfolio management;
+`/ws/resources` for real-time resource updates. This enables integration
+with custom frontends, dashboards, or external controllers.
+
+## Scenario Design: Case Study {#sec:case-study}
+
+As a concrete example,
+Listing [\[lst:hormuz\]](#lst:hormuz){reference-type="ref"
+reference="lst:hormuz"} shows the YAML for the "hormuz" scenario,
+featuring two agent types (player, miners), two resources (gold, corn),
+and a set of world events and market rules.
+
+``` {#lst:hormuz .yaml language="yaml" caption="Excerpt from hormuz.yaml" label="lst:hormuz"}
+global_rules:
+  epochs: 1
+  steps: 12
+  execution_mode: sequential
+  maintenance:
+    corn: 2
+  kill_conditions:
+    - resource: corn
+      threshold: 0
+  victory_conditions:
+    - resource: gold
+      threshold: 34
+  relation_dynamics:
+    on_trade_success:
+      trust_delta: 0.03
+    on_trade_rejected:
+      trust_delta: -0.02
+    on_broadcast:
+      trust_delta: 0.01
+    trust_decay_rate: 0.01
+    panic_decay_rate: 0.05
+  relations:
+    - source: player
+      target: miners
+      trust: 0.68
+      type: neutral
+    - source: miners
+      target: player
+      trust: 0.58
+      type: neutral
+  markets:
+    - resource: gold
+      currency: credits
+      initial_price: 6.0
+      min_price: 1.0
+      max_price: 40.0
+      clearing: per_step
+    - resource: corn
+      currency: credits
+      initial_price: 2.4
+      min_price: 0.5
+      max_price: 15.0
+      clearing: per_step
+world_events:
+  - name: gold_spike
+    type: shock
+    trigger:
+      tick: 4
+    effect:
+      market: gold
+      price_multiplier: 1.4
+  - name: corn_shortage
+    type: shock
+    trigger:
+      tick: 6
+    effect:
+      market: corn
+      price_multiplier: 1.35
+  - name: panic_wave
+    type: trend
+    trigger:
+      tick: 2
+    duration: 3
+    effect:
+      targets: all
+      resource: panic
+      rate: 0.08
+  - name: food_relief
+    type: conditional
+    trigger:
+      condition:
+        resource: corn
+        operator: lt
+        threshold: 6
+        scope: any_agent
+    effect:
+      targets: all
+      resource: corn
+      delta: 3
+actors:
+  - id: player
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Farmer-trader. Your core business is converting gold into corn. Keep enough corn to survive maintenance and monetize surplus.
+    trading_mode: both
+    initial_portfolio:
+      credits: 45
+      corn: 12
+      gold: 5
+      panic: 0.0
+    constraints:
+      gold:
+        min: 0
+      corn:
+        min: 0
+      credits:
+        min: 0
+      panic:
+        min: 0
+        max: 1
+    operations:
+      farm:
+        input:
+          gold: 1
+        output:
+          corn: 4
+  - id: miners
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Miner-merchant. Your core business is converting corn into gold. Prefer the exchange over OTC: check the corn and gold books, post bids for corn before you run short, post asks for gold when inventory is ample, and use direct negotiation only when the book is empty or a bilateral trade is clearly better. Keep enough corn to continue mining.
+    trading_mode: both
+    initial_portfolio:
+      credits: 55
+      corn: 6
+      gold: 16
+      panic: 0.0
+    constraints:
+      gold:
+        min: 0
+      corn:
+        min: 0
+      credits:
+        min: 0
+      panic:
+        min: 0
+        max: 1
+    operations:
+      mine:
+        input:
+          corn: 2
+        output:
+          gold: 5
+```
+
+## Experiments and Results
+
+## Discussion and Limitations
+
+## Conclusion
+
+Doxa provides a robust, extensible platform for multi-agent simulation,
+integrating economic, social, and AI-driven reasoning. Its YAML-based
+configuration, modular engine, and API make it suitable for a wide range
+of research applications.
+
+## References {#references .unnumbered}
