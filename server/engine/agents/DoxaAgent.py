@@ -274,7 +274,7 @@ OTHERS: {other_agents}
 === RULES ===
 1. You MUST use a tool to act.
 2. NO PLAIN TEXT RESPONSES.
-3. For tradable resources: you can use {market_mode}.
+3. For tradable resources: you can use {market_mode}. You can evaluate utility of such ops.
 4. Only send messages or offers to agent IDs listed in OTHERS.
 { f"You'll die if: {kill_conditions}" if kill_conditions else "" }
 { f"You'll win if: {win_conditions}" if win_conditions else "" }
@@ -309,6 +309,40 @@ OTHERS: {other_agents}
         can_chat = self.config.get('can_chat', True)
         can_rag = self.can_rag
         trading_mode = self.config.get('trading_mode', 'otc')   # otc | lob | both
+        def build_reference_prices() -> Dict[str, float]:
+            prices: Dict[str, float] = {"credits": 1.0, "panic": 0.0}
+            me = getattr(self.env, 'market_engine', None)
+            if me:
+                for resource_name, market in me.markets.items():
+                    prices[resource_name] = float(market.current_price)
+                    prices.setdefault(market.currency, 1.0)
+            for resource_name, expected_price in getattr(self.env, 'price_expectations', {}).get(self.agent_id, {}).items():
+                prices[resource_name] = float(expected_price)
+            return prices
+
+        def format_utility_report(label: str, simulated_portfolio: Dict[str, float], delta_value: float) -> str:
+            econ = getattr(self.env, 'agent_economics_map', {}).get(self.agent_id)
+            if econ is None:
+                return "FAILED: No economics profile configured."
+            reference_prices = build_reference_prices()
+            current_portfolio = self.env.portfolios[self.agent_id]
+            current_utility = econ.compute_utility(current_portfolio, reference_prices)
+            projected_utility = econ.compute_utility(simulated_portfolio, reference_prices)
+            current_wealth = econ.compute_wealth(current_portfolio, reference_prices)
+            projected_wealth = econ.compute_wealth(simulated_portfolio, reference_prices)
+            advisories = econ.liquidity_advisory(simulated_portfolio)
+            lines = [
+                f"=== UTILITY CHECK: {label} ===",
+                f"Current utility: {current_utility:.6f}",
+                f"Projected utility: {projected_utility:.6f}",
+                f"Utility delta: {delta_value:+.6f}",
+                f"Current wealth proxy: {current_wealth:.6f}",
+                f"Projected wealth proxy: {projected_wealth:.6f}",
+            ]
+            if advisories:
+                lines.append("Projected liquidity advisory: " + "; ".join(advisories))
+            return "\n".join(lines)
+
         # 1. Messaging
         def send_message(recipient: str, message: str) -> str:
             """Send a private message to another agent."""
@@ -358,6 +392,69 @@ OTHERS: {other_agents}
             else:
                 self.logger.print_action(self.agent_id, "reject_trade", trade_id, res)
             return res
+        def evaluate_trade_utility(give_res: str, give_qty: float, take_res: str, take_qty: float) -> str:
+            """Estimate utility change for a hypothetical OTC trade without executing it."""
+            econ = getattr(self.env, 'agent_economics_map', {}).get(self.agent_id)
+            if econ is None:
+                return "FAILED: No economics profile configured."
+            portfolio = self.env.portfolios[self.agent_id]
+            reference_prices = build_reference_prices()
+            simulated_portfolio = econ.simulate_portfolio_delta(
+                portfolio,
+                {
+                    give_res: -float(give_qty),
+                    take_res: float(take_qty),
+                },
+            )
+            delta_value = econ.evaluate_trade_utility(
+                portfolio,
+                {give_res: float(give_qty)},
+                {take_res: float(take_qty)},
+                reference_prices,
+            )
+            return format_utility_report(
+                f"give {give_qty} {give_res} / take {take_qty} {take_res}",
+                simulated_portfolio,
+                delta_value,
+            )
+        def evaluate_order_utility(side: str, resource: str, quantity: float, price: float, currency: str = "credits") -> str:
+            """Estimate utility change if an order fully executes at the given price without placing it."""
+            econ = getattr(self.env, 'agent_economics_map', {}).get(self.agent_id)
+            if econ is None:
+                return "FAILED: No economics profile configured."
+            portfolio = self.env.portfolios[self.agent_id]
+            reference_prices = build_reference_prices()
+            qty = float(quantity)
+            px = float(price)
+            if side == "bid":
+                simulated_portfolio = econ.simulate_portfolio_delta(
+                    portfolio,
+                    {resource: qty, currency: -(qty * px)},
+                )
+            elif side == "ask":
+                simulated_portfolio = econ.simulate_portfolio_delta(
+                    portfolio,
+                    {resource: -qty, currency: qty * px},
+                )
+            else:
+                return f"FAILED: Unsupported order side '{side}'. Use 'bid' or 'ask'."
+            try:
+                delta_value = econ.evaluate_order_utility(
+                    portfolio,
+                    side,
+                    resource,
+                    qty,
+                    px,
+                    currency,
+                    reference_prices,
+                )
+            except ValueError as exc:
+                return f"FAILED: {exc}"
+            return format_utility_report(
+                f"{side} {qty} {resource} @ {px} {currency}",
+                simulated_portfolio,
+                delta_value,
+            )
         # 3. LOB market tools
         def place_buy_order(resource: str, quantity: float, max_price: float) -> str:
             """Place a limit buy order on the market for the given resource at max_price per unit."""
@@ -452,6 +549,7 @@ OTHERS: {other_agents}
             self.send(f"[TASK] {task}", self.env.agents[sub_agent], request_reply=False, silent=True)
             return f"Task sent to {sub_agent}."
         available_tools = []
+        available_tools += [evaluate_trade_utility, evaluate_order_utility]
         if can_trade and trading_mode in ('otc', 'both'):
             available_tools += [make_trade_offer, accept_trade, reject_trade]
         if can_trade and trading_mode in ('lob', 'both'):
