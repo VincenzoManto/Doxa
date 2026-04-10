@@ -8,8 +8,8 @@ global_rules:
   - resource: corn
     threshold: 0
   victory_conditions:
-  - resource: credits
-    threshold: 180
+  - resource: gold
+    threshold: 34
   relation_dynamics:
     on_trade_success:
       trust_delta: 0.03
@@ -81,14 +81,13 @@ actors:
 - id: player
   provider: google
   model_name: gemini-2.5-pro
-  persona: Farmer-trader. Your core business is converting gold into corn. Keep enough
-    corn to survive maintenance, sell corn when the market is rich, buy gold when your
-    farming pipeline is constrained, and use OTC chat when miners need supply urgently.
+  persona: |
+    Farmer-trader. Your core business is converting gold into corn. Keep enough corn to survive maintenance and monetize surplus.
   trading_mode: both
   initial_portfolio:
     credits: 45
-    corn: 14
-    gold: 3
+    corn: 12
+    gold: 5
     panic: 0.0
   constraints:
     gold:
@@ -109,14 +108,16 @@ actors:
 - id: miners
   provider: google
   model_name: gemini-2.5-pro
-  persona: Miner-merchant. Your core business is converting corn into gold. Keep enough
-    corn to continue mining, buy corn aggressively if inventory is tight, sell gold when
-    prices are favorable, and negotiate directly with player if exchange liquidity is poor.
+  persona: |
+    Miner-merchant. Your core business is converting corn into gold. Prefer the exchange
+    over OTC: check the corn and gold books, post bids for corn before you run short, post
+    asks for gold when inventory is ample, and use direct negotiation only when the book is
+    empty or a bilateral trade is clearly better. Keep enough corn to continue mining.
   trading_mode: both
   initial_portfolio:
-    credits: 45
-    corn: 4
-    gold: 18
+    credits: 55
+    corn: 6
+    gold: 16
     panic: 0.0
   constraints:
     gold:

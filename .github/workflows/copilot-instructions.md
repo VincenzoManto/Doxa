@@ -1,0 +1,1 @@
+When adding new yml configuration properties, add a documentation in #CONFIG_YAML_REFERENCE.md.
