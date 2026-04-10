@@ -30,3 +30,6 @@ yarn-error.log*
 # OS
 .DS_Store
 Thumbs.db
+
+justonefile.py
+*.ps1

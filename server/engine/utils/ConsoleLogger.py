@@ -1,10 +1,30 @@
 
+"""
+utils.ConsoleLogger
+-------------------
+ANSI-coloured terminal output used throughout the simulation engine.
+
+All methods accept plain Python data (strings, numbers, dicts) and emit
+formatted lines to stdout.  Colour/bold ANSI escape sequences make
+simulation logs readable at a glance:
+
+  * Epoch & step banners are printed in bold white/magenta.
+  * Successful actions are green; failures are red.
+  * Trades are cyan with actor identifiers.
+  * Kills are displayed on a red background.
+  * Victories are bold yellow.
+  * Resource deltas show green triangles (gains) and red inverted-triangles (losses).
+
+The logger is instantiated once by ``SimulationEnvironment`` and shared
+with all sub-systems via ``env.log``.
+"""
 
 # ==========================================
 # 1. UI & LOGGING
 # ==========================================
 
 class ConsoleLogger:
+    """Stateless ANSI-coloured terminal printer for the Doxa engine."""
     def print_header(self, text): print(f"\n\033[96m{'═'*60}\n{text}\n{'═'*60}\033[0m")
     def print_epoch(self, n): print(f"\n\033[1;35m--- EPOCH {n} STARTING ---\033[0m")
     def print_step(self, step): print(f"\n\033[1;37m{'—'*20} GLOBAL STEP {step} {'—'*20}\033[0m")

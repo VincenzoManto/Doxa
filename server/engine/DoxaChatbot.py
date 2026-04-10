@@ -1,3 +1,29 @@
+"""
+DoxaChatbot
+-----------
+A natural-language assistant that answers questions about the running
+simulation.
+
+``DoxaChatbot`` is a thin AutoGen ``ConversableAgent`` wrapper that is
+always kept alive alongside the main ``DoxaEngine`` instance.  It exposes
+three LLM-callable tools to itself:
+
+* ``export_data``  \u2014 queries the engine for structured data (portfolios,
+                    events, markets, relations).
+* ``get_yaml``     \u2014 returns the raw YAML configuration used to start the
+                    current run.
+* ``get_state``    \u2014 returns a full JSON snapshot of the live simulation
+                    state (agents, portfolios, pending trades, markets,
+                    relations).
+
+When ``answer(query)`` is called, a short-lived ``UserProxyAgent``
+(``chatbot_proxy``) initiates a multi-turn tool-calling loop (max 8 turns)
+against the chatbot.  The proxy executes tool calls and feeds results back
+to the LLM until a final text reply is produced.
+
+Currently only the ``ollama`` provider is supported for the chatbot itself;
+the simulation agents can use any provider.
+"""
 from typing import Optional
 import autogen
 

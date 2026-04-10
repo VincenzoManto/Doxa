@@ -1,3 +1,54 @@
+"""
+DoxaEngine
+----------
+Top-level orchestrator for a Doxa multi-agent economic simulation.
+
+Lifecycle
+~~~~~~~~~
+1. **Construction** \u2014 ``DoxaEngine(yaml_str)`` parses and validates the YAML
+   config, creates a ``SimulationEnvironment``, and attaches a
+   ``DoxaChatbot``.
+2. **Start** \u2014 ``start_run()`` launches a background ``threading.Thread``
+   that calls ``run()``.
+3. **Run loop** \u2014 ``run()`` iterates epochs \u00d7 steps:
+   a. ``env.reset()`` re-initialises agents / portfolios for each epoch.
+   b. Per step: maintenance \u2192 agent turns \u2192 market clearing \u2192 world
+      events \u2192 price-expectation update \u2192 macro snapshot.
+4. **Control** \u2014 ``pause_run()`` / ``resume_run()`` / ``restart_run()`` /
+   ``stop_current_run()`` manage the run-thread lifecycle.
+5. **Manual stepping** \u2014 ``step_once()`` advances one agent turn while
+   paused (used by the frontend *step* button).
+
+Key internal methods
+~~~~~~~~~~~~~~~~~~~~
+* ``_step_agent(a_id)``          \u2014 generates one LLM reply and dispatches
+                                   tool-calls or custom operations.
+* ``_run_market_clearing()``     \u2014 expires stale orders, re-quotes market
+                                   makers, then runs per_step / call_auction
+                                   matching for all markets.
+* ``_run_world_events()``        \u2014 ticks ``WorldEventScheduler`` and records
+                                   any fired events.
+* ``_update_price_expectations`` \u2014 runs EWA update for all agents / markets.
+* ``_run_macro_step()``          \u2014 records a ``MacroTracker`` snapshot.
+* ``_apply_maintenance()``       \u2014 deducts per-step maintenance costs and
+                                   checks kill conditions.
+* ``check_victory_conditions()`` \u2014 checks victory conditions per agent.
+
+Data export
+~~~~~~~~~~~
+* ``export_data(query, format)`` \u2014 flexible data extractor supporting
+  agents, portfolios, trades, markets, relations, and history.
+* ``build_export_zip()``         \u2014 produces a ZIP archive with config,
+  events, timeline, and per-agent CSV files.
+
+Config management
+~~~~~~~~~~~~~~~~~
+* ``_set_config(yaml_text)`` / ``update_config_text()`` / ``load_config_path()``
+  handle runtime YAML updates with full validation.
+* ``_validate_config_dict()`` is the comprehensive structural\u00a0validator;
+  it checks all constraint blocks, operation dicts, market bounds, event
+  definitions, and relation references before any state is mutated.
+"""
 import yaml
 import json
 import random
@@ -16,8 +67,22 @@ from engine.DoxaChatbot import DoxaChatbot
 from engine.SimulationEnvironment import SimulationEnvironment
 
 class DoxaEngine:
+    """Top-level simulation orchestrator.  One instance manages one YAML config."""
 
     def __init__(self, yaml_str, log_verbose=True, rag_limit=200, logger=None):
+        """Initialise the engine from a raw YAML string.
+
+        Parses and validates *yaml_str*, builds the ``SimulationEnvironment``,
+        and attaches a ``DoxaChatbot``.  If any actor declares
+        ``provider: ollama``, a background thread is started to warm up the
+        local Ollama server.
+
+        Args:
+            yaml_str:    YAML configuration string (the full simulation spec).
+            log_verbose: Enable ANSI-coloured console output.
+            rag_limit:   Maximum RAG memory entries per agent before eviction.
+            logger:      Optional pre-built logger; overrides *log_verbose*.
+        """
         self.log_verbose = log_verbose
         self.rag_limit = rag_limit
         self.logger = logger
@@ -302,6 +367,15 @@ class DoxaEngine:
             self.startOllama()
 
     def validate_yaml(self, yaml_text: str):
+        """Parse and validate *yaml_text* without changing engine state.
+
+        Returns:
+            ``{"valid": True, "config": parsed_dict}`` on success.
+
+        Raises:
+            ``ValueError`` with a descriptive message on the first detected
+            structural or semantic error.
+        """
         parsed = yaml.safe_load(yaml_text) or {}
         self._validate_config_dict(parsed)
         return {"valid": True, "config": parsed}
@@ -606,6 +680,18 @@ class DoxaEngine:
         return not self._stop_event.is_set()
 
     def _apply_maintenance(self, ids):
+        """Deduct per-step maintenance resource costs and evaluate kill conditions.
+
+        For each agent in *ids*:
+        * Subtracts ``global_rules.maintenance`` amounts from their portfolio.
+        * Decays the ``panic`` resource toward 0 by ``panic_decay_rate``.
+        * Optionally increases ``panic`` based on portfolio value distress
+          compared to the previous snapshot.
+        * Checks all applicable kill conditions; eliminates agents that
+          breach any threshold.
+
+        Also decays all trust edges toward neutral (0.5) by ``trust_decay_rate``.
+        """
         maintenance = self.global_rules.get("maintenance", {})
         rel_dyn = self.global_rules.get("relation_dynamics", {})
         trust_decay = rel_dyn.get("trust_decay_rate", 0.0)
@@ -654,6 +740,20 @@ class DoxaEngine:
             self.env.relation_graph.decay_all(trust_decay)
 
     def godmode(self, action: str, params: dict) -> str:
+        """Privileged operator interface for live state overrides.
+
+        Supported *action* values:
+
+        * ``inject_resource``    — add *amount* of *resource* to *agent*’s portfolio.
+        * ``set_constraint``     — update min/max constraint for *resource* on *agent*.
+        * ``set_portfolio``      — replace *agent*’s entire portfolio with *portfolio*.
+        * ``send_message``       — inject a message into *agent*’s AutoGen history.
+        * ``impersonate_action`` — invoke a registered function on *agent*’s behalf.
+
+        All successful actions record a snapshot tagged with the godmode action name.
+        Returns:
+            ``"SUCCESS: <action> executed."`` or a ``"FAILED: …"`` message.
+        """
         if action == 'inject_resource':
             agent = params['agent']
             resource_name = params['resource']
@@ -811,6 +911,23 @@ class DoxaEngine:
         time.sleep(5)
 
     def run(self):
+        """Main simulation loop — runs on the background thread started by ``start_run()``.
+
+        Iterates over ``epochs`` \u00d7 ``steps`` (from YAML ``global_rules``).  Each
+        step:
+
+        1. Shuffles agent order (sequential mode) or fans out to a thread pool
+           (parallel mode).
+        2. Applies maintenance costs and checks kill conditions.
+        3. Runs each agent’s LLM turn (tool-call loop via ``_step_agent``).
+        4. Clears markets (``_run_market_clearing``).
+        5. Fires world events (``_run_world_events``).
+        6. Updates EWA price expectations (``_update_price_expectations``).
+        7. Records a macro snapshot (``_run_macro_step``).
+
+        Sets ``self.state`` to ``"completed"`` on clean exit or ``"errored"``
+        on exception.  Always clears the ``_run_thread`` reference on exit.
+        """
         try:
             self._reset_runtime_storage()
             epochs = self.global_rules.get('epochs', 1)
@@ -918,6 +1035,18 @@ class DoxaEngine:
         return None
 
     def _step_agent(self, a_id):
+        """Run one LLM turn for agent *a_id* and dispatch the resulting tool-calls.
+
+        Calls ``generate_reply()`` with retry logic for transient API errors.
+        The reply is either:
+
+        * A ``dict`` with ``"tool_calls"`` — each call is dispatched through the
+          agent’s registered ``_function_map`` (standard tools) or falls back
+          to ``env.execute_operation()`` for custom YAML ops.
+        * A plain ``str`` (implicit thought) — logged but not acted upon.
+
+        After all tool calls the agent’s victory conditions are checked.
+        """
         if a_id not in self.env.agents:
             return
         if self.log:
@@ -1071,6 +1200,13 @@ class DoxaEngine:
         return self.env.relation_graph.to_list()
 
     def check_victory_conditions(self, a_id):
+        """Check and record any victory conditions met by *a_id* after its turn.
+
+        Conditions can be scoped:
+        * ``individual`` — agent’s own resource quantity meets the threshold.
+        * global (default) — the *total* resource across all portfolios meets
+          the threshold (fires for ``"GLOBAL"`` rather than the agent).
+        """
         if a_id not in self.env.agents or a_id not in self.env.portfolios:
             return
         conditions = self.global_rules.get('victory_conditions', []) + self.env.agents[a_id].config.get('victory_conditions', [])
@@ -1084,110 +1220,148 @@ class DoxaEngine:
                         self.log.print_victory(f"{a_id} wins with {resource_name} = {self.env.portfolios[a_id].get(resource_name, 0)}")
                     self.record_event({"type": "victory", "agent": a_id, "resource": resource_name, "value": self.env.portfolios[a_id].get(resource_name, 0)})
             else:
-                for agent_id, portfolio in self.env.portfolios.items():
-                    if portfolio.get(resource_name, 0) >= threshold:
-                        if self.log:
-                            self.log.print_victory(f"{agent_id} wins with {resource_name} = {portfolio.get(resource_name, 0)}")
-                        self.record_event({"type": "victory", "agent": agent_id, "resource": resource_name, "value": portfolio.get(resource_name, 0)})
+                total_value = sum(portfolio.get(resource_name, 0) for portfolio in self.env.portfolios.values())
+                if total_value >= threshold:
+                    if self.log:
+                        self.log.print_victory(f"GLOBAL wins with total {resource_name} = {total_value}")
+                    self.record_event({"type": "victory", "agent": "GLOBAL", "resource": resource_name, "value": total_value})
         
 
 
 # ==========================================
 # 5. CONFIG (Dilemma + Trade)
 # ==========================================
-config_yaml = yaml.safe_dump(
-    {
-        "global_rules": {
-            "epochs": 1,
-            "steps": 10,
-            "execution_mode": "sequential",
-            "maintenance": {"corn": 1},
-            "kill_conditions": [{"resource": "corn", "threshold": 0}],
-            "victory_conditions": [{"resource": "gold", "threshold": 60}],
-            "relation_dynamics": {
-                "on_trade_success": {"trust_delta": 0.03},
-                "on_trade_rejected": {"trust_delta": -0.02},
-                "on_broadcast": {"trust_delta": 0.01},
-                "trust_decay_rate": 0.01,
-                "panic_decay_rate": 0.05,
-            },
-            "relations": [
-                {"source": "player", "target": "miners", "trust": 0.6, "type": "neutral"},
-                {"source": "miners", "target": "player", "trust": 0.45, "type": "rival"},
-            ],
-            "markets": [
-                {
-                    "resource": "gold",
-                    "currency": "credits",
-                    "initial_price": 6.0,
-                    "min_price": 1.0,
-                    "max_price": 40.0,
-                    "clearing": "per_step",
-                }
-            ],
-        },
-        "world_events": [
-            {
-                "name": "gold_spike",
-                "type": "shock",
-                "trigger": {"tick": 4},
-                "effect": {"market": "gold", "price_multiplier": 1.4},
-            },
-            {
-                "name": "panic_wave",
-                "type": "trend",
-                "trigger": {"tick": 2},
-                "duration": 3,
-                "effect": {"targets": "all", "resource": "panic", "rate": 0.08},
-            },
-            {
-                "name": "food_relief",
-                "type": "conditional",
-                "trigger": {
-                    "condition": {
-                        "resource": "corn",
-                        "operator": "lt",
-                        "threshold": 6,
-                        "scope": "any_agent",
-                    }
-                },
-                "effect": {"targets": "all", "resource": "corn", "delta": 3},
-            },
-        ],
-        "actors": [
-            {
-                "id": "player",
-                "provider": "google",
-                "model_name": "gemini-2.5-pro",
-                "persona": "Farmer-trader. Sell gold only if price is attractive, keep panic low, and use both OTC and the exchange.",
-                "trading_mode": "both",
-                "initial_portfolio": {"credits": 120, "corn": 20, "gold": 8, "panic": 0.0},
-                "constraints": {
-                    "gold": {"min": 0},
-                    "corn": {"min": 0},
-                    "credits": {"min": 0},
-                    "panic": {"min": 0, "max": 1},
-                },
-                "operations": {"farm": {"input": {"gold": 1}, "output": {"corn": 4}}},
-            },
-            {
-                "id": "miners",
-                "provider": "google",
-                "model_name": "gemini-2.5-pro",
-                "persona": "Miner-merchant. Produce gold, arbitrate between OTC and the exchange, and watch trust carefully.",
-                "trading_mode": "both",
-                "initial_portfolio": {"credits": 120, "corn": 10, "gold": 20, "panic": 0.0},
-                "constraints": {
-                    "gold": {"min": 0},
-                    "corn": {"min": 0},
-                    "credits": {"min": 0},
-                    "panic": {"min": 0, "max": 1},
-                },
-                "operations": {"mine": {"input": {"corn": 2}, "output": {"gold": 5}}},
-            },
-        ],
-    },
-    sort_keys=False,
-)
-
-print(config_yaml)
+config_yaml = """
+global_rules:
+  epochs: 1
+  steps: 12
+  execution_mode: sequential
+  maintenance:
+    corn: 1
+  kill_conditions:
+  - resource: corn
+    threshold: 0
+  victory_conditions:
+  - resource: gold
+    threshold: 34
+  relation_dynamics:
+    on_trade_success:
+      trust_delta: 0.03
+    on_trade_rejected:
+      trust_delta: -0.02
+    on_broadcast:
+      trust_delta: 0.01
+    trust_decay_rate: 0.01
+    panic_decay_rate: 0.05
+  relations:
+  - source: player
+    target: miners
+    trust: 0.68
+    type: neutral
+  - source: miners
+    target: player
+    trust: 0.58
+    type: neutral
+  markets:
+  - resource: gold
+    currency: credits
+    initial_price: 6.0
+    min_price: 1.0
+    max_price: 40.0
+    clearing: per_step
+  - resource: corn
+    currency: credits
+    initial_price: 2.4
+    min_price: 0.5
+    max_price: 15.0
+    clearing: per_step
+world_events:
+- name: gold_spike
+  type: shock
+  trigger:
+    tick: 4
+  effect:
+    market: gold
+    price_multiplier: 1.4
+- name: corn_shortage
+  type: shock
+  trigger:
+    tick: 6
+  effect:
+    market: corn
+    price_multiplier: 1.35
+- name: panic_wave
+  type: trend
+  trigger:
+    tick: 2
+  duration: 3
+  effect:
+    targets: all
+    resource: panic
+    rate: 0.08
+- name: food_relief
+  type: conditional
+  trigger:
+    condition:
+      resource: corn
+      operator: lt
+      threshold: 6
+      scope: any_agent
+  effect:
+    targets: all
+    resource: corn
+    delta: 3
+actors:
+- id: player
+  provider: google
+  model_name: gemini-2.5-pro
+  persona: Farmer-trader. Your core business is converting gold into corn. Keep enough corn to survive maintenance and monetize surplus.
+  trading_mode: lob
+  initial_portfolio:
+    credits: 45
+    corn: 12
+    gold: 5
+    panic: 0.0
+  constraints:
+    gold:
+      min: 0
+    corn:
+      min: 0
+    credits:
+      min: 0
+    panic:
+      min: 0
+      max: 1
+  operations:
+    farm:
+      input:
+        gold: 1
+      output:
+        corn: 4
+- id: miners
+  provider: google
+  model_name: gemini-2.5-pro
+  persona: Miner-merchant. Your core business is converting corn into gold. Keep enough corn to continue mining.
+  trading_mode: lob
+  initial_portfolio:
+    credits: 55
+    corn: 6
+    gold: 16
+    panic: 0.0
+  constraints:
+    gold:
+      min: 0
+    corn:
+      min: 0
+    credits:
+      min: 0
+    panic:
+      min: 0
+      max: 1
+  operations:
+    mine:
+      input:
+        corn: 2
+      output:
+        gold: 5
+"""

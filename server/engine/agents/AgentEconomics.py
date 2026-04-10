@@ -1,3 +1,19 @@
+"""
+agents.AgentEconomics
+---------------------
+Encapsulates formal micro-economic preferences for an individual agent.
+Parsed from the optional ``actor.economics`` block in the YAML config.
+All fields fall back to sensible, risk-neutral defaults so existing
+configs that omit the block continue to work without changes.
+
+Supported utility functions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+* ``linear``  — utility = total positive wealth (default, risk-neutral).
+* ``crra``    — Constant Relative Risk Aversion:
+                :math:`U(W) = W^{1-\\gamma} / (1-\\gamma)` (or ln W at \u03b3=1).
+* ``cara``    — Constant Absolute Risk Aversion:
+                :math:`U(W) = -e^{-\\alpha W} / \\alpha`.
+"""
 from typing import Dict, List, Optional
 from attr import dataclass, field
 # ==========================================
@@ -6,14 +22,14 @@ from attr import dataclass, field
 
 @dataclass
 class AgentEconomics:
-    """Formal economic preferences for one agent, parsed from actor.economics in YAML.
-    All fields are optional; defaults produce neutral/linear behavior."""
-    utility_fn: str = "linear"             # linear | crra | cara
-    risk_aversion: float = 0.0             # 0 = risk-neutral; higher = more averse
-    discount_factor: float = 0.95          # intertemporal patience
-    liquidity_floor: Dict[str, float] = field(factory=dict)
-    price_expectation_window: int = 5      # rolling window for EWA
-    learning_rate: float = 0.1             # EWA weight on the newest observation
+    """Formal economic preferences for one agent, parsed from ``actor.economics`` in YAML.
+    All fields are optional; defaults produce neutral / linear behaviour."""
+    utility_fn: str = "linear"             # Utility form: "linear" | "crra" | "cara"
+    risk_aversion: float = 0.0             # \u03b3 (CRRA) or \u03b1 (CARA); 0 = risk-neutral
+    discount_factor: float = 0.95          # Intertemporal patience \u03b2 \u2208 (0, 1]
+    liquidity_floor: Dict[str, float] = field(factory=dict)  # Minimum holdings per resource
+    price_expectation_window: int = 5      # Rolling window length for EWA price estimate
+    learning_rate: float = 0.1             # EWA \u03bb: weight on the newest price observation
 
     @classmethod
     def from_config(cls, cfg: Optional[Dict]) -> "AgentEconomics":

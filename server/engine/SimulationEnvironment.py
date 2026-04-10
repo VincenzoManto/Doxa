@@ -1,3 +1,26 @@
+"""
+SimulationEnvironment
+---------------------
+Central shared state container for one simulation run.
+
+Responsibilities
+~~~~~~~~~~~~~~~~
+* Holds the canonical portfolio dict (``_portfolios``), agent dict
+  (``_agents``), and pending-trade dict (``_pending_trades``).
+* Owns subsystem instances: ``RelationGraph``, ``MarketEngine``,
+  ``WorldEventScheduler``, ``MacroTracker``, and per-agent
+  ``AgentEconomics`` / price-expectation maps.
+* Manages per-agent persistent RAG memory (``ChromaDBVectorMemory``) with
+  automatic eviction when the item cap (``rag_limit``) is exceeded.
+* Exposes ``@property`` shims for backward compatibility.
+* Provides the public trade/operation API used by ``DoxaEngine`` and
+  ``DoxaAgent``.
+
+Threading
+~~~~~~~~~
+All mutable state accesses go through ``self._lock`` (a ``threading.RLock``
+shared with ``MarketEngine``).
+"""
 from typing import Any, Dict, Optional
 import os
 import tempfile
@@ -19,7 +42,24 @@ from autogen_ext.memory.chromadb import ChromaDBVectorMemory, PersistentChromaDB
 # 3. ENVIRONMENT
 # ==========================================
 class SimulationEnvironment:
+    """Central shared-state container for one simulation epoch.
+
+    Created once per ``DoxaEngine`` instance; ``reset()`` is called at the
+    start of every epoch to re-initialise portfolios and agents while
+    preserving RAG memories.
+    """
     def __init__(self, config, log_verbose=True, rag_limit=200, logger=None):
+        """Initialise the environment from *config* (the parsed YAML dict).
+
+        Args:
+            config:      Full parsed YAML dict (``global_rules`` + ``actors`` + …).
+            log_verbose: If ``True`` and no *logger* is supplied, create a
+                         ``ConsoleLogger`` for formatted terminal output.
+            rag_limit:   Maximum number of RAG memory entries per agent before
+                         oldest entries are evicted (LRU-like).
+            logger:      Optional pre-built logger instance; overrides
+                         *log_verbose* if provided.
+        """
         import threading
         self.config = config
         self.global_rules = config.get('global_rules', {})
@@ -49,9 +89,11 @@ class SimulationEnvironment:
         self.agent_economics_map: Dict[str, AgentEconomics] = {}
         self.price_expectations: Dict[str, Dict[str, float]] = {}  # agent_id → resource → EWA price
 
-    # ── backward-compat property shims ──────────────────────────────────────
+    # ── backward-compat property shims ──────────────────────────────────────────────────
+    # Allow code written against the old flat-attribute style to continue working.
     @property
     def portfolios(self) -> Dict[str, Dict]:
+        """Live portfolio mapping: ``{agent_id: {resource: quantity}}``."""
         return self._portfolios
 
     @portfolios.setter
@@ -60,6 +102,7 @@ class SimulationEnvironment:
 
     @property
     def agents(self) -> Dict[str, Any]:
+        """Live agent mapping: ``{agent_id: DoxaAgent}``."""
         return self._agents
 
     @agents.setter
@@ -68,6 +111,7 @@ class SimulationEnvironment:
 
     @property
     def pending_trades(self) -> Dict[str, Dict]:
+        """Pending OTC trade offers awaiting acceptance/rejection by the target agent."""
         return self._pending_trades
 
     @pending_trades.setter
@@ -76,12 +120,14 @@ class SimulationEnvironment:
 
     # ── subsystem builders ───────────────────────────────────────────────────
     def _build_market_engine(self) -> Optional["MarketEngine"]:
+        """Build a ``MarketEngine`` from ``global_rules.markets``, or return ``None``."""
         markets_cfg = self.global_rules.get('markets', [])
         if not markets_cfg:
             return None
         return MarketEngine(markets_cfg, shared_lock=self._lock)
 
     def _build_event_scheduler(self) -> Optional["WorldEventScheduler"]:
+        """Build a ``WorldEventScheduler`` from ``world_events``, or return ``None``."""
         events_cfg = self.config.get('world_events', [])
         if not events_cfg:
             return None
@@ -107,6 +153,19 @@ class SimulationEnvironment:
 
     # ────────────────────────────────────────────────────────────────────────
     def reset(self, actors_cfg):
+        """Re-initialise all mutable state for a new epoch.
+
+        * Clears portfolios, agents, pending trades, and tick counter.
+        * Creates/reuses ``DoxaAgent`` instances (RAG memories are preserved
+          across epochs to allow agents to retain learned knowledge).
+        * Reconnects leader -> sub-agent relationships.
+        * Rebuilds ``RelationGraph``, ``MarketEngine``, ``WorldEventScheduler``,
+          ``MacroTracker``, and per-agent ``AgentEconomics`` maps.
+        * Provisions synthetic portfolios for any configured market-makers.
+
+        Args:
+            actors_cfg: The ``actors`` list from the parsed YAML config.
+        """
         with self._lock:
             self._portfolios = {}
             self._agents = {}
@@ -340,8 +399,13 @@ class SimulationEnvironment:
         }
 
     def create_trade(self, sender, target, g_res, g_qty, t_res, t_qty):
-        """
-        Propose a trade to target
+        """Create a pending OTC trade offer from *sender* to *target*.
+
+        Verifies that *sender* exists and has sufficient *g_res*.
+        Notifies the target via AutoGen message including the new trade ID.
+
+        Returns:
+            ``"SUCCESS: TRD_N created"`` or a ``"FAILED: …"`` message.
         """
         with self._lock:
             if target not in self._portfolios: return "FAILED: Target not found"
@@ -360,8 +424,22 @@ class SimulationEnvironment:
             return f"SUCCESS: {tid} created"
 
     def resolve_trade(self, responder, tid, accept):
-        """
-        Reply to a trade offer (accept/reject)
+        """Accept or reject a pending trade offer.
+
+        On acceptance:
+        * Verifies both parties still hold the required resources.
+        * Checks post-swap constraint compliance (min/max) for both agents;
+          rolls back on violation.
+        * Executes the portfolio swap atomically under ``self._lock``.
+        * Updates trust: +delta on success (bidirectional), -delta on rejection.
+
+        Args:
+            responder: Agent ID of the trade target (the one responding).
+            tid:       Trade ID string (``"TRD_N"``).
+            accept:    ``True`` to accept, ``False`` to reject.
+
+        Returns:
+            ``"SUCCESS: Trade completed / rejected"`` or a ``"FAILED: …"`` message.
         """
         with self._lock:
             trade = self._pending_trades.get(tid)
@@ -410,6 +488,22 @@ class SimulationEnvironment:
                 for tid, t in self._pending_trades.items() if t['to_agent'] == agent_id]
 
     def execute_operation(self, actor_id, op_name, target_id=None, multiplier=1):
+        """Execute a named operation on behalf of *actor_id*.
+
+        Resolves the operation definition from global and actor-level ops,
+        checks input resources, applies inputs/outputs, optionally applies
+        ``target_impact`` to a second agent, then validates constraints for
+        both agents.  Rolls back the entire state change on any violation.
+
+        Args:
+            actor_id:   ID of the agent executing the operation.
+            op_name:    Operation name as declared in YAML.
+            target_id:  Optional second agent affected by ``target_impact``.
+            multiplier: Scale factor applied to all input/output amounts.
+
+        Returns:
+            ``"SUCCESS"`` or a ``"FAILED: …"`` message.
+        """
         with self._lock:
             ops = {**self.global_rules.get('operations', {}), **self._agents[actor_id].config.get('operations', {})}
             op = ops.get(op_name)

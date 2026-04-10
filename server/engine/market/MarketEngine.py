@@ -1,3 +1,28 @@
+"""
+market.MarketEngine
+-------------------
+Multi-instrument limit-order-book engine for the Doxa simulation.
+
+Responsibilities
+~~~~~~~~~~~~~~~~
+* Instantiates and owns one ``Market`` per entry in ``global_rules.markets``.
+* Accepts, validates, and indexes bid/ask orders from agents; reserves funds
+  or inventory at submission time to prevent over-selling / over-spending.
+* Runs continuous (FIFO price-time) clearing or uniform-price call auctions
+  depending on the market's ``clearing`` config.
+* Supports market orders (aggressive, slippage-priced, TTL=1 tick).
+* Applies configurable price impact after each fill.
+* Manages a synthetic *market-maker* for any market that declares one,
+  auto-quoting tight spreads each tick.
+* Thread-safe: shares ``SimulationEnvironment._lock`` (an ``RLock``) so
+  agent threads and the market-clearing pass cannot race on portfolio state.
+
+Execution price policies
+~~~~~~~~~~~~~~~~~~~~~~~~
+* ``resting``   \u2014 price of the earlier (resting) order (default).
+* ``midpoint``  \u2014 arithmetic mean of bid and ask limit prices.
+* ``aggressive`` \u2014 price of the later (aggressor) order.
+"""
 from typing import Dict, List, Optional
 from attr import dataclass, field
 import threading
@@ -8,12 +33,20 @@ from agents.AgentEconomics import AgentEconomics
 from market.Market import Market
 
 class MarketEngine:
-    """Manages limit order books for configured markets."""
+    """Multi-instrument LOB engine.  One instance is shared by all agents
+    through ``SimulationEnvironment.market_engine``."""
 
     def __init__(self, markets_cfg: List[Dict], shared_lock=None):
+        """Initialise one ``Market`` per entry in *markets_cfg*.
+
+        Args:
+            markets_cfg: List of market config dicts from ``global_rules.markets``.
+            shared_lock: Optional ``threading.RLock`` to share with the
+                         ``SimulationEnvironment``; a new one is created otherwise.
+        """
         self.markets: Dict[str, Market] = {}
-        self._order_index: Dict[str, Order] = {}   # order_id → Order
-        self._order_counter = 1
+        self._order_index: Dict[str, Order] = {}   # order_id \u2192 Order (fast lookup)
+        self._order_counter = 1                     # monotonic counter for order IDs
         self._lock = shared_lock or threading.RLock()
         for m in (markets_cfg or []):
             resource = m["resource"]
@@ -25,21 +58,31 @@ class MarketEngine:
             )
 
     def _next_order_id(self) -> str:
+        """Return the next sequential order ID string (e.g. ``\"ORD_7\"``)."""
         oid = f"ORD_{self._order_counter}"
         self._order_counter += 1
         return oid
 
     def _execution_price(self, market: Market, bid: Order, ask: Order) -> float:
+        """Determine the fill price according to the market's ``execution_price_policy``."""
         policy = market.config.get("execution_price_policy", "resting")
         if policy == "midpoint":
+            # Split the spread evenly between buyer and seller.
             return round((bid.price + ask.price) / 2.0, 8)
         if policy == "aggressive":
+            # Aggressor (later arrival) sets the price.
             aggressor = bid if bid.arrival_seq > ask.arrival_seq else ask
             return float(aggressor.price)
+        # Default: resting (earlier) order sets the price.
         resting = bid if bid.arrival_seq < ask.arrival_seq else ask
         return float(resting.price)
 
     def _reserve(self, agent_id: str, reserve_res: str, reserve_qty: float, portfolios: Dict) -> bool:
+        """Deduct *reserve_qty* of *reserve_res* from *agent_id*'s portfolio.
+
+        Returns ``True`` on success, ``False`` if the agent has insufficient balance.
+        Callers must hold ``self._lock`` before calling this method.
+        """
         port = portfolios.get(agent_id, {})
         if port.get(reserve_res, 0) < reserve_qty:
             return False
@@ -47,11 +90,32 @@ class MarketEngine:
         return True
 
     def _release(self, agent_id: str, res: str, qty: float, portfolios: Dict):
+        """Add *qty* of *res* back to *agent_id*'s portfolio (refund / fill credit)."""
         port = portfolios.get(agent_id, {})
         port[res] = port.get(res, 0) + qty
 
     def add_order(self, agent_id: str, side: str, resource: str, quantity: float,
                   price: float, portfolios: Dict, tick: int = 0) -> str:
+        """Submit a limit order to the order book.
+
+        Reserves the required funds (bid) or inventory (ask) immediately;
+        if the reservation fails, the order is rejected with a ``FAILED:``
+        message.  On ``clearing=on_order`` markets the book is cleared
+        right after the order is inserted.
+
+        Args:
+            agent_id:   ID of the submitting agent.
+            side:       ``"bid"`` (buy) or ``"ask"`` (sell).
+            resource:   Resource name to trade (must match a configured market).
+            quantity:   Units to buy/sell (must be > 0).
+            price:      Limit price per unit (must be within market bounds).
+            portfolios: Shared ``{agent_id: {resource: qty}}`` dict — mutated
+                        in-place to reserve funds/inventory.
+            tick:       Current simulation tick (recorded on the order).
+
+        Returns:
+            ``"SUCCESS: ORD_N placed (…)"`` or a ``"FAILED: …"`` message.
+        """
         with self._lock:
             market = self.markets.get(resource)
             if not market:
@@ -95,6 +159,14 @@ class MarketEngine:
             return f"SUCCESS: {order.id} placed ({side} {quantity}×{resource} @ {price} {currency})."
 
     def cancel_order(self, order_id: str, agent_id: str, portfolios: Dict) -> str:
+        """Cancel an open or partially-filled order and refund reserved amounts.
+
+        Only the agent who placed the order may cancel it.  The reserved
+        currency (bid) or resource (ask) is released back to the portfolio.
+
+        Returns:
+            ``"SUCCESS: Order <id> cancelled."`` or a ``"FAILED: …"`` message.
+        """
         with self._lock:
             order = self._order_index.get(order_id)
             if not order:
@@ -114,7 +186,22 @@ class MarketEngine:
             return f"SUCCESS: Order {order_id} cancelled."
 
     def clear_market(self, resource: str, portfolios: Dict, tick: int) -> List[Dict]:
-        """FIFO price-time or call-auction matching. Returns list of fill event dicts."""
+        """Run one matching pass for *resource*.
+
+        Dispatches to ``_call_auction_clear`` if ``clearing=call_auction``,
+        otherwise runs continuous FIFO price-time matching.
+
+        Each matched fill:
+        * Moves the traded quantity to the buyer’s portfolio.
+        * Moves the fill cost (price \u00d7 qty) to the seller’s portfolio.
+        * Refunds any bid-price surplus (bid.price - fill_price) * qty to buyer.
+        * Applies optional permanent price impact proportional to fill size.
+        * Records ``(tick, price)`` in the market’s price_history.
+
+        Returns:
+            List of fill-event dicts (resource, fill_price, fill_qty, buyer,
+            seller, bid_order, ask_order, tick, execution_price_policy).
+        """
         with self._lock:
             market = self.markets.get(resource)
             if not market:
@@ -185,11 +272,16 @@ class MarketEngine:
             return fills
 
     def get_price(self, resource: str) -> Optional[float]:
+        """Return the current last-trade price for *resource*, or ``None`` if unknown."""
         with self._lock:
             m = self.markets.get(resource)
             return m.current_price if m else None
 
     def get_order_book(self, resource: str, depth: int = 10) -> Optional[Dict]:
+        """Return the aggregated top-of-book snapshot for *resource* (up to *depth* levels).
+
+        Includes ``resource`` and ``currency`` keys in addition to the fields
+        returned by ``Market.top_of_book()``."""
         with self._lock:
             market = self.markets.get(resource)
             if not market:
@@ -387,6 +479,12 @@ class MarketEngine:
             self.add_order(mm_id, "ask", resource, depth, ask_price, portfolios, tick)
 
     def summary(self) -> Dict:
+        """Return a high-level summary dict for every configured market.
+
+        Useful for WebSocket snapshots and the ``GET /api/markets`` endpoint.
+        Each entry contains: resource, currency, current_price, mid_price,
+        bids_count, asks_count, bids_volume, asks_volume, execution_price_policy.
+        """
         with self._lock:
             result = {}
             for res, m in self.markets.items():

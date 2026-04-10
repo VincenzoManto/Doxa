@@ -1,5 +1,46 @@
-import os
+"""
+agents.DoxaAgent
+----------------
+The core LLM-backed agent class for the Doxa simulation.
 
+Each active actor in a simulation run is represented by exactly one
+``DoxaAgent`` instance.  It subclasses AutoGen's ``ConversableAgent``
+so the full tool-calling loop (LLM generates a tool call \u2192 execution
+layer runs it \u2192 result injected back into context) works out of the box.
+
+Architecture
+~~~~~~~~~~~~
+* **Provider / model selection** \u2014 ``__init__`` reads ``actor.provider`` and
+  ``actor.model_name`` from the YAML config and builds the matching
+  ``llm_config`` dict.  Supported providers: ``openai``, ``google``
+  (Gemini via the OpenAI-compat endpoint), ``grok``, ``ollama``.
+
+* **State injection** \u2014 ``_inject_state_hook`` is registered as a
+  ``process_all_messages_before_reply`` hook; it prepend a system message
+  on every LLM call with the agent's current portfolio, pending trades,
+  relation graph, market prices, economics metrics, kill & victory
+  conditions, and active tool set.
+
+* **Tool registration** \u2014 Two tool categories are registered:
+  1. *Standard tools* (``_register_standard_tools``): messaging, OTC
+     trades, LOB orders, market queries, RAG memory, leader delegation.
+     Which tools are available depends on ``trading_mode``, ``can_trade``,
+     ``can_think``, ``can_chat``, ``can_rag``, and ``leader`` flags.
+  2. *Custom operations* (``_register_custom_ops``): operations declared
+     under ``global_rules.operations`` and ``actor.operations`` in YAML
+     are wrapped into callable LLM tools automatically.
+
+* **API key resolution** \u2014 ``_resolve_secret()`` looks for a key in
+  environment variables first, then in a ``.env`` file located in the
+  server root (walking up the directory tree up to two levels).
+
+* **RAG memory** \u2014 each agent has an optional persistent
+  ``ChromaDBVectorMemory`` (``save_knowledge`` / ``query_knowledge`` tools).
+  Memory is stored in a temporary directory and persists across epochs
+  within a single process run.
+"""
+import os
+from copy import deepcopy
 import autogen
 from typing import Dict, List, Optional
 
@@ -8,8 +49,12 @@ _LOCAL_ENV_CACHE: Optional[Dict[str, str]] = None
 
 
 def _read_local_env_file() -> Dict[str, str]:
-    """Load simple KEY=VALUE pairs from server/.env once.
-    This keeps local development working without requiring the caller to export env vars.
+    """Load simple KEY=VALUE pairs from server/.env once and cache the result.
+
+    This enables LLM API keys to be stored in a local ``.env`` file during
+    development without having to export them as shell environment variables.
+    The file is searched in the current directory and up to two parent
+    directories; the first match wins.
     """
     global _LOCAL_ENV_CACHE
     if _LOCAL_ENV_CACHE is not None:
@@ -41,6 +86,8 @@ def _read_local_env_file() -> Dict[str, str]:
 
 
 def _resolve_secret(name: str, default: str = "") -> str:
+    """Return the value of secret *name*, checking ``os.environ`` first,
+    then the cached ``.env`` file, and finally returning *default*."""
     return os.environ.get(name) or _read_local_env_file().get(name, default)
     
 
@@ -48,6 +95,17 @@ def _resolve_secret(name: str, default: str = "") -> str:
 # 2. DOXA AGENT
 # ==========================================
 class DoxaAgent(autogen.ConversableAgent):
+    """An AutoGen ConversableAgent that acts as an economic agent in the simulation.
+
+    At every step the engine calls ``generate_reply()`` on this agent;
+    the LLM either emits a tool-call (which the engine or AutoGen runtime
+    executes) or a plain-text thought (logged but not acted upon).
+
+    Constructor args:
+        agent_id: Unique string identifier (matches ``actor.id`` in YAML).
+        config:   The raw actor config dict from the parsed YAML.
+        env:      The shared ``SimulationEnvironment`` instance.
+    """
     def __init__(self, agent_id, config, env):
         self.agent_id = agent_id
         self.env = env
@@ -121,6 +179,20 @@ class DoxaAgent(autogen.ConversableAgent):
             self.sub_agents = config.get('sub_agents', [])
 
     def _inject_state_hook(self, messages: List[Dict]):
+        """AutoGen message hook — prepends a fresh system-state message before every LLM call.
+
+        Builds a prompt block containing:
+        * Current portfolio
+        * Other agent IDs (potential trade/message targets)
+        * Pending OTC trade offers addressed to this agent
+        * Outbound trust/type summary from the relation graph
+        * Market best-bid / best-ask for each configured instrument
+        * Utility value, risk profile, and liquidity advisories (if economics configured)
+        * Per-resource price expectations (EWA)
+        * Kill / victory conditions
+        * Active trading mode description
+        * Binding portfolio constraints
+        """
         portfolio = self.env.portfolios[self.agent_id]
         other_agents = [a for a in self.env.portfolios.keys() if a != self.agent_id]
         
@@ -175,6 +247,21 @@ class DoxaAgent(autogen.ConversableAgent):
             "\n".join(economics_lines) if economics_lines else "None"
         )
 
+        kill_conditions = self.env.global_rules.get("kill_conditions", []) + self.config.get("kill_conditions", [])
+        win_conditions = self.env.global_rules.get("victory_conditions", []) + self.config.get("victory_conditions", [])
+        market_mode = ""
+        if self.config.get('trading_mode') == 'lob':
+            market_mode = "limit order book (use place_buy_order, place_sell_order, get_market_price, get_order_book)"
+        elif self.config.get('trading_mode') == 'otc':
+            market_mode = "OTC bilateral trades (use make_trade_offer, accept_trade, reject_trade)"
+        else:
+            market_mode = "both limit order book and OTC bilateral trades. Use what's more convenient."
+
+        constraints = {
+            **deepcopy(self.env.global_rules.get("constraints", {})),
+            **deepcopy(self.config.get("constraints", {})),
+        }
+
         state_prompt = f"""{self.persona}
 === YOUR STATE ===
 ID: {self.agent_id} | PORTFOLIO: {portfolio}
@@ -187,6 +274,11 @@ OTHERS: {other_agents}
 === RULES ===
 1. You MUST use a tool to act.
 2. NO PLAIN TEXT RESPONSES.
+3. For tradable resources: you can use {market_mode}.
+4. Only send messages or offers to agent IDs listed in OTHERS.
+{ f"You'll die if: {kill_conditions}" if kill_conditions else "" }
+{ f"You'll win if: {win_conditions}" if win_conditions else "" }
+{ f"Constraints: {constraints}" if constraints else "" }
 """
         new_messages = [{"role": "system", "content": state_prompt}]
         for m in messages:
@@ -194,6 +286,24 @@ OTHERS: {other_agents}
         return new_messages
 
     def _register_standard_tools(self):
+        """Register all built-in agent tools based on capability flags.
+
+        Tools are gated by these actor config flags:
+
+        * ``can_trade`` (default ``True``) + ``trading_mode`` (``otc`` | ``lob`` | ``both``)
+          — enables OTC trade tools (make_trade_offer, accept_trade, reject_trade)
+            and/or LOB tools (place_buy_order, place_sell_order,
+            place_market_buy_order, place_market_sell_order, cancel_order,
+            get_market_price, get_order_book).
+        * ``can_think`` (default ``True``) — enables the ``think`` tool.
+        * ``can_chat``  (default ``True``) — enables ``send_message`` and ``broadcast``.
+        * ``can_rag``   (inferred from actor config, default ``True``) — enables
+          ``save_knowledge`` and ``query_knowledge``.
+        * ``leader``    (default ``False``) — enables ``assign_task``.
+
+        Every tool is registered under the name ``op_<function_name>`` so the
+        engine’s fallback dispatcher can recognise it.
+        """
         can_trade = self.config.get('can_trade', True)
         can_think = self.config.get('can_think', True)
         can_chat = self.config.get('can_chat', True)
@@ -202,7 +312,9 @@ OTHERS: {other_agents}
         # 1. Messaging
         def send_message(recipient: str, message: str) -> str:
             """Send a private message to another agent."""
-            if recipient not in self.env.agents: return "Error: Recipient not found."
+            if recipient not in self.env.agents:
+                live_agents = ", ".join(sorted(a for a in self.env.agents.keys() if a != self.agent_id)) or "none"
+                return f"Error: Recipient '{recipient}' not found. Live counterparts: {live_agents}."
             self.logger.print_communication(self.agent_id, message, target=recipient)
             self.send(f"[PRIVATE] {message}", self.env.agents[recipient], request_reply=False, silent=True)
             return "Message sent."
@@ -360,6 +472,21 @@ OTHERS: {other_agents}
             self.register_for_execution(name=f"op_{f.__name__}")(f)
 
     def _register_custom_ops(self, config, global_rules):
+        """Wrap every declared YAML operation into a registered LLM tool.
+
+        Operations from ``global_rules.operations`` and ``actor.operations``
+        are merged (actor-level takes precedence on name collision) and each
+        is registered as ``op_<name>`` with a description showing its
+        input/output resource mapping.
+
+        The generated tool signature is::
+
+            op_<name>(target: str = None, inputMultiplier: float = 1) -> str
+
+        This makes the LLM able to call multi-step operations (e.g. ``mine``
+        or ``farm``) and optionally apply them to a *target* agent or scale
+        with a multiplier.
+        """
         all_ops = {**global_rules.get('operations', {}), **config.get('operations', {})}
         for op_name, op_def in all_ops.items():
             def make_op(name=op_name):
