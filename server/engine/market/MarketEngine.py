@@ -47,7 +47,13 @@ class MarketEngine:
         self.markets: Dict[str, Market] = {}
         self._order_index: Dict[str, Order] = {}   # order_id \u2192 Order (fast lookup)
         self._order_counter = 1                     # monotonic counter for order IDs
+        # Shared accounting lock (portfolios, order counter/index, global state).
         self._lock = shared_lock or threading.RLock()
+        # Per-market locks: protect book structure (bids/asks) for read paths so
+        # two threads querying different markets do not block each other on the
+        # global accounting lock.  Mutation paths (add_order, clear_market, …)
+        # still hold the global lock because they touch shared portfolio state.
+        self._market_locks: Dict[str, threading.RLock] = {}
         for m in (markets_cfg or []):
             resource = m["resource"]
             self.markets[resource] = Market(
@@ -56,6 +62,7 @@ class MarketEngine:
                 current_price=float(m.get("initial_price", 1.0)),
                 config=m,
             )
+            self._market_locks[resource] = threading.RLock()
 
     def _next_order_id(self) -> str:
         """Return the next sequential order ID string (e.g. ``\"ORD_7\"``)."""
@@ -220,6 +227,10 @@ class MarketEngine:
                 ask = active_asks[ai]
                 if bid.price < ask.price:
                     break
+                # Prevent wash trades: skip if buyer and seller are the same agent
+                if bid.agent_id == ask.agent_id:
+                    ai += 1
+                    continue
                 fill_price = round(self._execution_price(market, bid, ask), 8)
                 fill_qty = min(bid.remaining, ask.remaining)
                 fill_cost = fill_price * fill_qty
@@ -272,17 +283,25 @@ class MarketEngine:
             return fills
 
     def get_price(self, resource: str) -> Optional[float]:
-        """Return the current last-trade price for *resource*, or ``None`` if unknown."""
-        with self._lock:
+        """Return the current last-trade price for *resource*, or ``None`` if unknown.
+
+        Uses the per-market lock so reads on different markets are independent.
+        """
+        mlock = self._market_locks.get(resource)
+        lock = mlock if mlock is not None else self._lock
+        with lock:
             m = self.markets.get(resource)
-            return m.current_price if m else None
+            return float(m.current_price) if m else None
 
     def get_order_book(self, resource: str, depth: int = 10) -> Optional[Dict]:
         """Return the aggregated top-of-book snapshot for *resource* (up to *depth* levels).
 
-        Includes ``resource`` and ``currency`` keys in addition to the fields
-        returned by ``Market.top_of_book()``."""
-        with self._lock:
+        Uses the per-market lock so concurrent reads on different markets do not
+        compete for the global accounting lock.
+        """
+        mlock = self._market_locks.get(resource)
+        lock = mlock if mlock is not None else self._lock
+        with lock:
             market = self.markets.get(resource)
             if not market:
                 return None
@@ -393,6 +412,10 @@ class MarketEngine:
         while bi < len(eligible_bids) and ai < len(eligible_asks) and remaining > 1e-9:
             bid = eligible_bids[bi]
             ask = eligible_asks[ai]
+            # Prevent wash trades in call auction
+            if bid.agent_id == ask.agent_id:
+                ai += 1
+                continue
             fill_qty = min(bid.remaining, ask.remaining, remaining)
             fill_cost = best_price * fill_qty
             surplus = (bid.price - best_price) * fill_qty
@@ -481,13 +504,14 @@ class MarketEngine:
     def summary(self) -> Dict:
         """Return a high-level summary dict for every configured market.
 
-        Useful for WebSocket snapshots and the ``GET /api/markets`` endpoint.
-        Each entry contains: resource, currency, current_price, mid_price,
-        bids_count, asks_count, bids_volume, asks_volume, execution_price_policy.
+        Acquires each per-market lock independently so agents querying
+        different markets in parallel do not block each other.
         """
-        with self._lock:
-            result = {}
-            for res, m in self.markets.items():
+        result = {}
+        for res, m in list(self.markets.items()):
+            mlock = self._market_locks.get(res)
+            lock = mlock if mlock is not None else self._lock
+            with lock:
                 active_bids = [o for o in m.bids if o.status in ("open", "partial")]
                 active_asks = [o for o in m.asks if o.status in ("open", "partial")]
                 result[res] = {
@@ -501,4 +525,4 @@ class MarketEngine:
                     "asks_volume": sum(o.remaining for o in active_asks),
                     "execution_price_policy": m.config.get("execution_price_policy", "resting"),
                 }
-            return result
+        return result

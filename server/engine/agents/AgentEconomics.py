@@ -136,6 +136,8 @@ class AgentEconomics:
         """Return expected utility delta if an order fully executes at the specified price."""
         qty = float(quantity)
         px = float(price)
+        # Accept natural-language aliases
+        side = {"buy": "bid", "sell": "ask"}.get(side, side)
         if side not in {"bid", "ask"}:
             raise ValueError(f"Unsupported order side '{side}'.")
         if qty < 0 or px < 0:
