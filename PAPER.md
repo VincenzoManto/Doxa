@@ -2,9 +2,13 @@
 
 ## **Abstract**
 
-This paper introduces **Doxa**, a formal computational framework for simulating economic and social systems through heterogeneous, AI-driven agents operating in structured environments. The platform integrates **agent-based modeling**, **market microstructure**, and **game-theoretic reasoning**, leveraging large language models to approximate bounded rationality and adaptive strategic behavior.
 
-Doxa provides a **declarative YAML-based specification language**, enabling reproducible and extensible simulation design. The system supports endogenous interactions (trading, negotiation, coalition formation) and exogenous shocks (market events, resource dynamics), making it suitable for studying equilibrium formation, market efficiency, and emergent social dynamics.
+We introduce **Doxa**, a formal computational framework for simulating decentralized economic systems populated by heterogeneous, AI-driven agents. The platform integrates **agent-based modeling**, **market microstructure**, and **dynamic game theory**, enabling the study of strategic interaction under bounded rationality.
+
+Doxa is defined by a **declarative configuration language**, a deterministic simulation engine, and a modular architecture supporting endogenous communication, trust dynamics, and exogenous shocks. Agents are powered by large language models, enabling adaptive reasoning and negotiation in natural language.
+
+We formalize the system as a **discrete-time stochastic game with endogenous network formation**, and demonstrate how equilibrium-like structures emerge from decentralized interactions rather than being imposed ex ante. The framework enables controlled experimentation in computational economics, mechanism design, and AI-driven markets.
+
 
 ---
 
@@ -24,39 +28,102 @@ Doxa addresses these limitations by introducing a unified architecture where:
 
 The system can be interpreted as a **computable economy** where agents solve constrained optimization problems under uncertainty, with incomplete information and evolving beliefs.
 
+Classical approaches impose equilibrium assumptions. However, real systems operate **out of equilibrium**, with continuous adjustment driven by local decisions.
+
+Doxa takes a different stance:
+
+> Economic structure is not assumed. It is *generated*.
+
+The framework enables simulation of:
+
+* endogenous price formation
+* trust-based coordination
+* strategic negotiation under uncertainty
+
+The key innovation is combining:
+
+* formal economic structure
+* programmable environments
+* LLM-based agent cognition
+
 ---
 
-## **2. Theoretical Foundations**
+## **2. Formal Model **
 
-### **2.1 Agent Model**
+
+### **2.1 System Definition**
+
+A Doxa simulation is defined as:
+
+$$
+\mathcal{D} = (\mathcal{A}, \mathcal{R}, \mathcal{M}, \mathcal{E}, \mathcal{T})
+$$
+
+where:
+
+* ( $\mathcal{A}$ ): set of agents
+* ( $\mathcal{R}$ ): resource space
+* ( $\mathcal{M}$ ): markets
+* ( $\mathcal{E}$ ): event processes
+* ( $\mathcal{T}$ ): transition operator
+
+Time is discrete: ( $t = 0,1,\dots,T$ )
+
+---
+
+### **2.2 Agent Structure**
 
 Each agent ( $a \in \mathcal{A}$ ) is defined by:
 
-* utility function ( $U_a: \mathbb{R}^n \rightarrow \mathbb{R}$ )
-* belief state ( $\mathcal{B}_a$ )
-* resource portfolio ( $P_a \in \mathbb{R}_{\geq 0}^n$ )
-* strategy space ( $\Sigma_a$ )
+$$
+a = (P_a^t, U_a, \Sigma_a, \mathcal{B}_a^t, \Theta_a)
+$$
 
-Agents solve:
+where:
+
+* ( $P_a^t \in \mathbb{R}_+^{|\mathcal{R}|}$ ): portfolio
+* ( $U_a$ ): utility function
+* ( $\Sigma_a$ ): strategy space
+* ( $\mathcal{B}_a^t$ ): belief state
+* ( $\Theta_a$ ): behavioral parameters
+
+Agents, emergently, try to solve:
 
 $$
-\max_{\sigma_a \in \Sigma_a} \mathbb{E}[U_a(P_a') \mid \mathcal{B}_a]$$
-  
-subject to:
+\max_{\sigma_a \in \Sigma_a} \mathbb{E}\left[\sum_{t=0}^T \beta_a^t U_a(P_a^t)\right]
+$$
 
-* budget constraints
-* market conditions
-* operational constraints
+subject to feasibility constraints. Agents are not guaranteed to solve this problem optimally, but it serves as a normative benchmark for their behavior. Their actions and thoughts are indeed emergent from their interactions with the environment and other agents, but constraints and incentives are designed to encourage them to approximate this optimization process.
 
-Utility functions include:
+The agent acts based on its current portfolio, beliefs, and the context of the environment, which includes market conditions and the actions of other agents. The strategy space ( $\Sigma_a$ ) encompasses all possible actions, including trading, communication, and resource transformation.
 
-* Linear (risk-neutral)
-* CRRA: ( $U(x) = \frac{x^{1-\gamma}}{1-\gamma}$ )
-* CARA: ( $U(x) = -e^{-\alpha x}$ )
+It is important to note that while agents are designed to be utility-maximizing, their actual behavior may deviate from this ideal due to bounded rationality, limited information, and the complexity of the environment or, more technically, based on inhereted stochastic elements of LLMs reasoning. This is where the integration of LLMs comes into play, allowing agents to use grasp the environment and make decisions in a more human-like, sometimes suboptimal way or apparently irrational, but still strategically coherent manner.
 
 ---
 
-### **2.2 Market Model**
+### **2.3 Bounded Rationality via LLMs**
+
+Agents do not solve the optimization problem exactly.
+
+Instead, decisions are approximated by:
+
+$$
+\sigma_a^t \sim \pi_{\theta}(P_a^t, \mathcal{B}_a^t, \text{context})
+$$
+
+where ( $\pi_{\theta}$ ) is an LLM-induced policy.
+
+Implications:
+
+* non-stationary strategies
+* heuristic reasoning
+* path dependence
+
+This places Doxa in the class of **behavioral computational economies**.
+
+---
+
+### **2.4 Market Model**
 
 Markets ( $m \in \mathcal{M}$ ) are defined as tuples:
 
@@ -86,9 +153,45 @@ $$
 
 introducing liquidity and stabilizing price dynamics.
 
+
+#### **Clearing Mechanisms**
+
+1. Continuous double auction
+2. Batch clearing
+3. Call auction
+
+Matching function:
+
+$$
+\mathcal{M}: \mathcal{O}_t \rightarrow \text{Trades}_t
+$$
+
+where ( $\mathcal{O}_t$ ) is the set of orders at time ( $t$ ).
+
+
+
+#### Production and Transformation**
+
+Agents have production functions:
+
+$$
+f_a: \mathbb{R}_{*+}^{|\mathcal{R}|} \rightarrow \mathbb{R}_{*+}^{|\mathcal{R}|}
+$$
+
+Example:
+
+$$
+f_{farmer}(gold) = 4 \cdot corn
+$$
+
+This introduces:
+
+* endogenous supply
+* interdependence across agents
+
 ---
 
-### **2.3 Game-Theoretic Interpretation**
+### **2.5 Game-Theoretic Interpretation**
 
 The system defines a **dynamic stochastic game**:
 
@@ -114,9 +217,41 @@ Equilibria are not imposed but **emerge dynamically**, allowing study of:
 * coordination failures
 * market inefficiencies
 
+
+#### **Event Process**
+
+Events are stochastic processes:
+
+$$
+E_t \sim \mathcal{P}(E \mid S_t)
+$$
+
+State transition:
+
+$$
+S_{t+1} = \mathcal{T}(S_t, A_t, E_t)
+$$
+
+Events introduce:
+
+* non-stationarity
+* regime shifts
+* exogenous shocks
+
+
+#### **Equilibrium Concept**
+
+Classical Nash equilibrium is intractable.
+
+Instead, Doxa approximates:
+
+* **behavioral equilibrium**
+* **empirical stationary distributions**
+* **policy convergence states**
+
 ---
 
-### **2.4 Social and Trust Dynamics**
+### **2.6 Social and Trust Dynamics**
 
 Relations form a weighted directed graph:
 
@@ -138,6 +273,35 @@ where:
 Trust affects:
 
 * probability of trade acceptance
+* negotiation outcomes
+* coalition formation
+
+
+#### **Trust Network**
+
+Define a directed weighted graph:
+
+$$
+G_t = (\mathcal{A}, E_t)
+$$
+
+with weights:
+
+$$
+t_{ij}^t \in [0,1]
+$$
+
+Update rule:
+
+$$
+t_{ij}^{t+1} = (1 - \delta)t_{ij}^t + \phi(\text{interaction})
+$$
+
+where ( $\delta$ ) is a decay factor and ( $\phi$ ) captures the impact of interactions (e.g., successful trade increases trust, failed negotiation decreases it).
+
+Trust affects:
+
+* probability of trade
 * negotiation outcomes
 * coalition formation
 
@@ -168,13 +332,36 @@ At each timestep:
 
 This defines a **discrete-time dynamical system**.
 
----
+### **3.1 Engine Implementation**
 
-## **4. Declarative Scenario Specification**
+The engine implements:
+
+$$
+S_{t+1} = \mathcal{T}(S_t)
+$$
+
+via the loop:
+
+1. maintenance constraints
+2. agent decisions
+3. market clearing
+4. event execution
+5. belief update
+
+### **Determinism**
+
+Given:
+
+* fixed YAML
+* fixed seeds
+
+the system is reproducible.
+
+### **3.1 Declarative Scenario Specification**
 
 Doxa uses a **YAML-based domain-specific language** enabling full reproducibility.
 
-### **Formal Structure**
+#### **Formal Structure**
 
 A scenario is defined as:
 
@@ -197,7 +384,7 @@ This allows:
 
 ---
 
-## **5. Event Dynamics and Exogenous Shocks**
+### **3.2 Event Dynamics and Exogenous Shocks**
 
 Events introduce non-stationarity:
 
@@ -223,7 +410,7 @@ This enables modeling of:
 
 ---
 
-## **6. Communication and Strategic Interaction**
+### **3.3 Communication and Strategic Interaction**
 
 Agents exchange structured messages:
 
@@ -247,7 +434,123 @@ LLMs approximate reasoning under **bounded rationality**, enabling natural-langu
 
 ---
 
-## **7. Validation and Consistency Guarantees**
+
+## **4. Analytical Properties**
+
+### **4.1 Existence of Feasible Paths**
+
+Given constraint validation, there exists at least one feasible trajectory:
+
+$$
+\exists {S_t}_{t=0}^T
+$$
+
+---
+
+### **4.2 Non-Equilibrium Dynamics**
+
+The system does not guarantee convergence:
+
+* cycles may emerge
+* chaotic dynamics possible
+* path dependence dominates
+
+---
+
+### **4.3 Emergent Price Formation**
+
+Prices evolve as:
+
+$$
+\pi_{t+1} = \pi_t + \Delta(\text{order flow})
+$$
+
+No Walrasian auctioneer is assumed.
+
+---
+
+## **5. Experimental Design Framework**
+
+Doxa enables controlled experiments:
+
+### **Independent Variables**
+
+* agent preferences
+* market structure
+* event processes
+
+### **Dependent Variables**
+
+* price volatility
+* allocation efficiency
+* network structure
+
+### **Metrics**
+
+* allocative efficiency
+* Gini coefficient
+* trade volume
+* convergence speed
+
+---
+
+## **6. Case Study: Bilateral Production Economy**
+
+Two-agent system:
+
+* Agent A: transforms gold → corn
+* Agent B: transforms corn → gold
+
+### **Structure**
+
+$$
+A \leftrightarrow B
+$$
+
+This creates:
+
+* mutual dependence
+* endogenous trade necessity
+
+### **Dynamics**
+
+* shocks → price spikes
+* scarcity → bargaining power shifts
+* trust → trade friction
+
+Equivalent to:
+
+* a minimal general equilibrium model
+* with production and strategic interaction
+
+---
+
+## **7. Applications**
+
+### **Economic Research**
+
+* market efficiency under bounded rationality
+* liquidity crises
+* price discovery
+
+### **Game Theory**
+
+* repeated games with communication
+* endogenous coalition formation
+
+### **AI Systems**
+
+* emergent coordination
+* language-mediated strategy
+
+### **Policy**
+
+* intervention testing
+* systemic risk
+
+---
+
+## **8. Validation and Consistency Guarantees**
 
 The system enforces:
 
@@ -264,75 +567,43 @@ This ensures simulations are:
 
 ---
 
-## **8. Case Study: Resource Conversion Economy**
 
-The provided scenario defines a two-agent economy:
+## **9. Limitations**
 
-* **Farmer**: converts gold → corn
-* **Miner**: converts corn → gold
+* no formal equilibrium guarantees
+* scalability constraints
+* dependence on LLM quality
 
-This creates a **circular production structure**, analogous to:
+Agents are:
 
-* input-output models
-* bilateral dependency economies
+* not fully rational
+* not stationary
+* sensitive to prompting
 
-### Key dynamics:
+--- 
 
-* price shocks induce reallocation
-* trust affects trade efficiency
-* scarcity triggers systemic responses
+## **10. Conclusion**
 
-This setup resembles a **two-sector exchange economy with production**, where equilibrium emerges from decentralized interaction.
+Doxa reframes economic modeling as:
 
----
+> a programmable, dynamic system of interacting agents
 
-## **9. Research Applications**
+It eliminates:
 
-Doxa enables experimental research in:
+* static equilibrium assumptions
+* rigid analytical constraints
 
-### **Economic Theory**
+and replaces them with:
 
-* price discovery under bounded rationality
-* liquidity formation
-* market microstructure
+* simulation-based inference
+* emergent structure
+* adaptive behavior
 
-### **Game Theory**
+This positions Doxa as a foundational tool for:
 
-* repeated games with communication
-* coalition formation
-* trust-based equilibria
-
-### **AI and Economics**
-
-* LLM-driven strategic agents
-* emergent coordination
-* adaptive expectations
-
-### **Policy Simulation**
-
-* intervention analysis
-* systemic risk modeling
-* stress testing
-
----
-
-## **10. Limitations**
-
-Current constraints include:
-
-* limited scalability for large populations
-* dependence on external LLM inference
-* absence of distributed execution
-
-Additionally, agent rationality is:
-
-* approximate
-* model-dependent
-* non-stationary
-
----
-
-## **11. Conclusion**
+* computational economics
+* AI-driven market design
+* next-generation economic experimentation
 
 Doxa represents a shift toward **programmable economic systems**, where:
 
@@ -350,9 +621,38 @@ The framework provides a foundation for studying **complex adaptive systems** wh
 
 ---
 
-## **Future Directions**
+## **11. Future Works**
 
+Critical directions:
+
+### **1. Learning Agents**
+
+Hybrid LLM + reinforcement learning:
+
+$$
+\pi_a = \lambda \pi_{LLM} + (1-\lambda)\pi_{RL}
+$$
+
+### **2. Mechanism Design Layer**
+
+Design optimal markets:
+
+$$
+\max_{\kappa} ; \text{Efficiency}(\kappa)
+$$
+
+### **3. Distributed Simulation**
+
+Scaling to ( $ 10^5+ $ ) agents
+
+### **4. Formal Analysis**
+
+* convergence proofs
+* stability conditions
+* equilibrium approximation bounds
 * distributed simulation architecture
 * endogenous learning (RL + LLM hybrid)
 * mechanism design modules
 * formal equilibrium analysis tools
+
+
