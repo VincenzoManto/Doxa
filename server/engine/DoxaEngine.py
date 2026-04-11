@@ -697,47 +697,51 @@ class DoxaEngine:
         trust_decay = rel_dyn.get("trust_decay_rate", 0.0)
         panic_decay = rel_dyn.get("panic_decay_rate", 0.0)
 
-        for agent_id in list(ids):
-            if agent_id not in self.env.agents:
-                continue
-            for resource_name, amount in maintenance.items():
-                self.env.portfolios[agent_id][resource_name] = self.env.portfolios[agent_id].get(resource_name, 0) - amount
-            # Decay panic resource toward 0 (clamp at 0)
-            if panic_decay and "panic" in self.env.portfolios[agent_id]:
-                current_panic = self.env.portfolios[agent_id]["panic"]
-                self.env.portfolios[agent_id]["panic"] = max(0.0, current_panic - panic_decay)
-            # Portfolio distress → panic feedback
-            distress_rate = rel_dyn.get("portfolio_distress_panic_rate", 0.0)
-            if distress_rate > 0.0 and self.resource_history:
-                prev_snap = self.resource_history[-1]
-                if agent_id in prev_snap.get("agents", {}):
-                    prev_port = prev_snap["agents"][agent_id]
-                    prev_total = sum(max(0.0, v) for v in prev_port.values() if isinstance(v, (int, float)))
-                    curr_total = sum(max(0.0, self.env.portfolios[agent_id].get(r, 0)) for r in prev_port)
-                    if prev_total > 0:
-                        drop = (prev_total - curr_total) / prev_total
-                        if drop > 0:
-                            self.env.portfolios[agent_id]["panic"] = (
-                                self.env.portfolios[agent_id].get("panic", 0.0)
-                                + drop * distress_rate
-                            )
-            kill_conds = self.global_rules.get("kill_conditions", []) + self.env.agents[agent_id].config.get("kill_conditions", [])
-            for cond in kill_conds:
-                resource_name = cond["resource"]
-                threshold = cond["threshold"]
-                if self.env.portfolios[agent_id].get(resource_name, 0) <= threshold:
-                    if self.log:
-                        self.log.print_kill(agent_id, f"Condition met: {resource_name} <= {threshold}")
-                    self.record_event({"type": "kill", "agent": agent_id, "reason": f"{resource_name} <= {threshold}"})
-                    if agent_id in self.env.agents:
-                        del self.env.agents[agent_id]
-                    if agent_id in self.env.portfolios:
-                        del self.env.portfolios[agent_id]
-                    break
+        # Hold the shared environment lock for the entire maintenance pass so that
+        # portfolio mutations are visible atomically to any agent threads that
+        # snapshot state during a parallel step.
+        with self.env._lock:
+            for agent_id in list(ids):
+                if agent_id not in self.env.agents:
+                    continue
+                for resource_name, amount in maintenance.items():
+                    self.env.portfolios[agent_id][resource_name] = self.env.portfolios[agent_id].get(resource_name, 0) - amount
+                # Decay panic resource toward 0 (clamp at 0)
+                if panic_decay and "panic" in self.env.portfolios[agent_id]:
+                    current_panic = self.env.portfolios[agent_id]["panic"]
+                    self.env.portfolios[agent_id]["panic"] = max(0.0, current_panic - panic_decay)
+                # Portfolio distress → panic feedback
+                distress_rate = rel_dyn.get("portfolio_distress_panic_rate", 0.0)
+                if distress_rate > 0.0 and self.resource_history:
+                    prev_snap = self.resource_history[-1]
+                    if agent_id in prev_snap.get("agents", {}):
+                        prev_port = prev_snap["agents"][agent_id]
+                        prev_total = sum(max(0.0, v) for v in prev_port.values() if isinstance(v, (int, float)))
+                        curr_total = sum(max(0.0, self.env.portfolios[agent_id].get(r, 0)) for r in prev_port)
+                        if prev_total > 0:
+                            drop = (prev_total - curr_total) / prev_total
+                            if drop > 0:
+                                self.env.portfolios[agent_id]["panic"] = (
+                                    self.env.portfolios[agent_id].get("panic", 0.0)
+                                    + drop * distress_rate
+                                )
+                kill_conds = self.global_rules.get("kill_conditions", []) + self.env.agents[agent_id].config.get("kill_conditions", [])
+                for cond in kill_conds:
+                    resource_name = cond["resource"]
+                    threshold = cond["threshold"]
+                    if self.env.portfolios[agent_id].get(resource_name, 0) <= threshold:
+                        if self.log:
+                            self.log.print_kill(agent_id, f"Condition met: {resource_name} <= {threshold}")
+                        self.record_event({"type": "kill", "agent": agent_id, "reason": f"{resource_name} <= {threshold}"})
+                        if agent_id in self.env.agents:
+                            del self.env.agents[agent_id]
+                        if agent_id in self.env.portfolios:
+                            del self.env.portfolios[agent_id]
+                        break
 
-        # Trust decay toward neutral
-        if trust_decay:
-            self.env.relation_graph.decay_all(trust_decay)
+            # Trust decay toward neutral (also under the lock: relation graph is not internally locked)
+            if trust_decay:
+                self.env.relation_graph.decay_all(trust_decay)
 
     def godmode(self, action: str, params: dict) -> str:
         """Privileged operator interface for live state overrides.
@@ -1244,6 +1248,7 @@ global_rules:
   victory_conditions:
   - resource: gold
     threshold: 34
+    scope: individual
   relation_dynamics:
     on_trade_success:
       trust_delta: 0.03

@@ -193,11 +193,18 @@ class DoxaAgent(autogen.ConversableAgent):
         * Active trading mode description
         * Binding portfolio constraints
         """
-        portfolio = self.env.portfolios[self.agent_id]
-        other_agents = [a for a in self.env.portfolios.keys() if a != self.agent_id]
-        
-        # Recupera trade pendenti per questo agente
-        pending = self.env.get_pending_trades_for(self.agent_id)
+        # Take a consistent snapshot of mutable shared state under the env lock so
+        # concurrent agent turns in parallel execution mode don't race on dict reads.
+        _env_lock = getattr(self.env, '_lock', None)
+        if _env_lock is not None:
+            with _env_lock:
+                portfolio = dict(self.env.portfolios.get(self.agent_id, {}))
+                other_agents = [a for a in self.env.portfolios.keys() if a != self.agent_id]
+                pending = self.env.get_pending_trades_for(self.agent_id)
+        else:
+            portfolio = dict(self.env.portfolios.get(self.agent_id, {}))
+            other_agents = [a for a in self.env.portfolios.keys() if a != self.agent_id]
+            pending = self.env.get_pending_trades_for(self.agent_id)
         trade_info = "\nPENDING TRADES:\n" + ("None" if not pending else "\n".join(pending))
 
         # Relations
@@ -419,6 +426,8 @@ OTHERS: {other_agents}
             )
         def evaluate_order_utility(side: str, resource: str, quantity: float, price: float, currency: str = "credits") -> str:
             """Estimate utility change if an order fully executes at the given price without placing it."""
+            # Accept natural-language aliases so the LLM can use 'buy'/'sell'
+            side = {"buy": "bid", "sell": "ask"}.get(side.lower(), side.lower())
             econ = getattr(self.env, 'agent_economics_map', {}).get(self.agent_id)
             if econ is None:
                 return "FAILED: No economics profile configured."
