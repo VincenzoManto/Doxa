@@ -1,38 +1,3 @@
-economics, and artificial intelligence. Doxa addresses the need for a
-flexible, reproducible, and extensible platform that enables researchers
-to model complex agent interactions, market mechanisms, and world
-events, leveraging modern AI models for agent reasoning. This paper
-details the Doxa platform, its YAML-driven configuration, and its
-application to economic and social simulation.
-distinguishes itself by combining declarative scenario modeling,
-generative AI integration, and a rich economic/market simulation
-toolkit, all accessible via a modern API.
-types, resources, markets, and world events. The engine parses this
-enabling rich scenario evolution and exogenous shocks.
-simulation control, and data retrieval. The WebSocket endpoints
-actions, resource updates, and chat. The API is designed for integration
-with custom frontends, dashboards, and external controllers, supporting
-both synchronous and asynchronous workflows.
-defined by a persona, initial resources, constraints, and a set of
-operations. Agents can communicate, negotiate, trade (OTC and LOB),
-reason internally, and manage persistent vector memory (RAG via
-ChromaDB). Hierarchical organization (leaders and sub-agents) is
-supported. LLM integration enables advanced reasoning and language-based
-interaction.
-configurable market parameters (price bounds, clearing modes, market
-makers). Economic behavior is further shaped by agent-level utility
-functions, risk aversion, and liquidity preferences. The engine enforces
-constraints and rollbacks for infeasible operations.
-conditions (e.g., resource thresholds). Effects include resource
-changes, market price shifts, trust updates, and contagion. The YAML
-schema supports complex event logic, enabling rich scenario evolution.
-for real-time agent actions, chat, and portfolio management;
-`/ws/resources` for real-time resource updates. This enables integration
-with custom frontends, dashboards, or external controllers.
-and a set of world events and market rules.
-integrating economic, social, and AI-driven reasoning. Its YAML-based
-configuration, modular engine, and API make it suitable for a wide range
-of research applications.
 
 # Doxa: A Multi-Agent Simulation Platform for Economic and Social Dynamics
 
@@ -55,6 +20,83 @@ Agent-based modeling platforms such as NetLogo, MASON, and Repast have enabled d
 - Extensible API for real-time and batch control
 
 ## 3. Formal System Architecture
+
+```mermaid
+graph TD
+    subgraph API Layer
+        A1[FastAPI Server]
+        A2[REST Endpoints]
+        A3[WebSocket Endpoints]
+    end
+
+    subgraph Engine
+        B1[DoxaEngine]
+        B2[SimulationEnvironment]
+        B3[DoxaAgent]
+        B4[MarketEngine]
+        B5[RelationGraph]
+        B6[WorldEventScheduler]
+        B7[ConsoleLogger]
+    end
+
+    subgraph Submodules
+        C1[AgentEconomics]
+        C2[AgentState]
+        C3[Market]
+        C4[Order]
+        C5[WorldEventEffect]
+        C6[RelationRecord]
+    end
+
+    subgraph Storage/External
+        D1[RAG Memory]
+        D2[LLM Providers]
+    end
+
+    %% API Layer
+    A1 --> A2
+    A1 --> A3
+    A2 --> B1
+    A3 --> B1
+
+    %% Engine Core
+    B1 --> B2
+    B1 --> B3
+    B1 --> B4
+    B1 --> B5
+    B1 --> B6
+    B1 --> B7
+
+    %% Submodules
+    B3 --> C1
+    B3 --> C2
+    B4 --> C3
+    B4 --> C4
+    B5 --> C6
+    B6 --> C5
+
+    %% Storage/External
+    B3 --> D1
+    B3 --> D2
+
+    %% Data Flows
+    B2 -- manages --> B3
+    B2 -- manages --> B4
+    B2 -- manages --> B5
+    B2 -- manages --> B6
+
+    %% Events
+    B6 -- triggers --> B3
+    B6 -- triggers --> B4
+    B6 -- triggers --> B5
+
+    %% Agents interact via API
+    A3 -- real-time actions --> B3
+
+    %% Logging
+    B7 -- logs --> A1
+```
+
 
 Doxa is composed of the following core modules (see `server/engine/`):
 
@@ -79,6 +121,37 @@ The scenario YAML file is the single source of truth for simulation configuratio
 See Section 8 for a concrete example (hormuz.yaml).
 
 ## 5. Subsystem Formalization
+
+```mermaid
+flowchart TD
+    A[Start: Load YAML Scenario] --> B[Validate Schema & Parameters]
+    B --> C[Initialize SimulationEnvironment]
+    C --> D[Instantiate Agents]
+    D --> E[Initialize Markets & Relations]
+    E --> F[Simulation Loop Epochs x Steps]
+    F --> G[Apply Maintenance Costs]
+    G --> H[Check Kill/Victory Conditions]
+    H --> I[Agent Turns]
+    I --> J[Market Clearing]
+    J --> K[Apply World Events]
+    K --> L[Update Trust & Relations]
+    L --> M[Update Resource Portfolios]
+    M --> N{More Steps?}
+    N -- Yes --> G
+    N -- No --> O{More Epochs?}
+    O -- Yes --> F
+    O -- No --> P[Collect Results & Logs]
+    P --> Q[Expose via API/WS]
+    Q --> R[End]
+
+    %% Optional: highlight agent reasoning
+    I --> I1[LLM Reasoning / RAG Query]
+    I1 --> I
+
+    %% Optional: highlight event triggers
+    K --> K1[Conditional/Trend/Shock Evaluation]
+    K1 --> K
+```
 
 ### 5.1 Economic Subsystem
 Each agent $a$ is parameterized by a utility function $U_a$, risk aversion $\gamma_a$ (CRRA) or $\alpha_a$ (CARA), and discount factor $\beta_a$. The agent's decision process maximizes expected utility subject to resource constraints and market conditions. Liquidity preferences and price expectations are modeled as advisory or hard constraints.
