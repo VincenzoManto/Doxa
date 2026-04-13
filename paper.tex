@@ -1,8 +1,13 @@
-
+\documentclass{article}
 \title{Doxa: A Multi-Agent Simulation Platform for Economic and Social Research}
 \author{Vincenzo et al.}
-
+\date{\today}
+\begin{document}
 \maketitle
+
+
+
+
 
 \begin{abstract}
 Doxa is a modular, extensible platform for multi-agent simulation, integrating generative AI, economic modeling, and social dynamics. This paper presents the architecture, YAML-based scenario schema, agent logic, engine internals, API, and a detailed case study, providing a reproducible foundation for research in computational economics and AI-driven agent systems.
@@ -69,143 +74,10 @@ The backend exposes a REST API and two WebSocket endpoints:\newline
 
 \section{Scenario Design: Case Study}
 \label{sec:case-study}
-As a concrete example, Listing~\ref{lst:hormuz} shows the YAML for the ``hormuz'' scenario, featuring two agent types (player, miners), two resources (gold, corn), and a set of world events and market rules.
-\begin{lstlisting}[language=yaml,caption={Excerpt from hormuz.yaml},label={lst:hormuz}]
-global_rules:
-  epochs: 1
-  steps: 12
-  execution_mode: sequential
-  maintenance:
-    corn: 2
-  kill_conditions:
-    - resource: corn
-      threshold: 0
-  victory_conditions:
-    - resource: gold
-      threshold: 34
-  relation_dynamics:
-    on_trade_success:
-      trust_delta: 0.03
-    on_trade_rejected:
-      trust_delta: -0.02
-    on_broadcast:
-      trust_delta: 0.01
-    trust_decay_rate: 0.01
-    panic_decay_rate: 0.05
-  relations:
-    - source: player
-      target: miners
-      trust: 0.68
-      type: neutral
-    - source: miners
-      target: player
-      trust: 0.58
-      type: neutral
-  markets:
-    - resource: gold
-      currency: credits
-      initial_price: 6.0
-      min_price: 1.0
-      max_price: 40.0
-      clearing: per_step
-    - resource: corn
-      currency: credits
-      initial_price: 2.4
-      min_price: 0.5
-      max_price: 15.0
-      clearing: per_step
-world_events:
-  - name: gold_spike
-    type: shock
-    trigger:
-      tick: 4
-    effect:
-      market: gold
-      price_multiplier: 1.4
-  - name: corn_shortage
-    type: shock
-    trigger:
-      tick: 6
-    effect:
-      market: corn
-      price_multiplier: 1.35
-  - name: panic_wave
-    type: trend
-    trigger:
-      tick: 2
-    duration: 3
-    effect:
-      targets: all
-      resource: panic
-      rate: 0.08
-  - name: food_relief
-    type: conditional
-    trigger:
-      condition:
-        resource: corn
-        operator: lt
-        threshold: 6
-        scope: any_agent
-    effect:
-      targets: all
-      resource: corn
-      delta: 3
-actors:
-  - id: player
-    provider: google
-    model_name: gemini-2.5-pro
-    persona: |
-      Farmer-trader. Your core business is converting gold into corn. Keep enough corn to survive maintenance and monetize surplus.
-    trading_mode: both
-    initial_portfolio:
-      credits: 45
-      corn: 12
-      gold: 5
-      panic: 0.0
-    constraints:
-      gold:
-        min: 0
-      corn:
-        min: 0
-      credits:
-        min: 0
-      panic:
-        min: 0
-        max: 1
-    operations:
-      farm:
-        input:
-          gold: 1
-        output:
-          corn: 4
-  - id: miners
-    provider: google
-    model_name: gemini-2.5-pro
-    persona: |
-      Miner-merchant. Your core business is converting corn into gold. Prefer the exchange over OTC: check the corn and gold books, post bids for corn before you run short, post asks for gold when inventory is ample, and use direct negotiation only when the book is empty or a bilateral trade is clearly better. Keep enough corn to continue mining.
-    trading_mode: both
-    initial_portfolio:
-      credits: 55
-      corn: 6
-      gold: 16
-      panic: 0.0
-    constraints:
-      gold:
-        min: 0
-      corn:
-        min: 0
-      credits:
-        min: 0
-      panic:
-        min: 0
-        max: 1
-    operations:
-      mine:
-        input:
-          corn: 2
-        output:
-          gold: 5
-\end{lstlisting}
+As a concrete example, Listing shows the YAML for the ``hormuz'' scenario, featuring two agent types (player, miners), two resources (gold, corn), and a set of world events and market rules.
+
+
+
 
 \section{Experiments and Results}
 % TODO: Describe experimental setup, metrics, and results. Include figures, tables, and analysis.
@@ -218,3 +90,5 @@ Doxa provides a robust, extensible platform for multi-agent simulation, integrat
 
 \section*{References}
 % TODO: Add references to related work, foundational papers, and relevant documentation.
+
+\end{document}
