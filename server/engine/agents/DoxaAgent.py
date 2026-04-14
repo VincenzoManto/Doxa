@@ -48,25 +48,37 @@ from typing import Dict, List, Optional
 _LOCAL_ENV_CACHE: Optional[Dict[str, str]] = None
 
 
+def _candidate_env_paths() -> List[str]:
+    """Return env-file lookup candidates from closest to project root."""
+    env_override = os.environ.get("DOXA_ENV_FILE")
+    if env_override:
+        return [env_override]
+
+    current_dir = os.path.abspath(os.path.dirname(__file__))
+    candidates: List[str] = []
+    for _ in range(5):
+        candidates.append(os.path.join(current_dir, ".env"))
+        parent_dir = os.path.dirname(current_dir)
+        if parent_dir == current_dir:
+            break
+        current_dir = parent_dir
+    return candidates
+
+
 def _read_local_env_file() -> Dict[str, str]:
     """Load simple KEY=VALUE pairs from server/.env once and cache the result.
 
     This enables LLM API keys to be stored in a local ``.env`` file during
     development without having to export them as shell environment variables.
-    The file is searched in the current directory and up to two parent
-    directories; the first match wins.
+    The file is searched from the current directory up to the repository root;
+    the first match wins. An explicit ``DOXA_ENV_FILE`` path overrides this.
     """
     global _LOCAL_ENV_CACHE
     if _LOCAL_ENV_CACHE is not None:
         return _LOCAL_ENV_CACHE
     values: Dict[str, str] = {}
-    # search .env in current and parent directories
-    env_path = os.path.join(os.path.dirname(__file__), ".env")
-    if not os.path.exists(env_path):
-        env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
-        if not os.path.exists(env_path):
-            env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env")
-    if os.path.exists(env_path):
+    env_path = next((path for path in _candidate_env_paths() if os.path.exists(path)), None)
+    if env_path:
         try:
             with open(env_path, "r", encoding="utf-8") as handle:
                 for raw_line in handle:

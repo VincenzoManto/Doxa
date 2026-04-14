@@ -1,18 +1,29 @@
-version: '3.8'
-
 services:
   backend:
     build: ./server
+    container_name: doxa-backend
     ports:
       - "5000:5000"
+    env_file:
+      - .env
     environment:
-      - FLASK_ENV=development
-    volumes:
-      - ./server:/app
+      ENV: production
+      PYTHONUNBUFFERED: "1"
+    restart: unless-stopped
+    networks:
+      - doxa
 
   frontend:
     build: ./client
+    container_name: doxa-frontend
     ports:
       - "3000:80"
     depends_on:
       - backend
+    restart: unless-stopped
+    networks:
+      - doxa
+
+networks:
+  doxa:
+    driver: bridge
