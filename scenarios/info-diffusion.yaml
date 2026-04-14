@@ -1,0 +1,164 @@
+global_rules:
+  epochs: 1
+  steps: 16
+  execution_mode: sequential
+  constraints:
+    panic:
+      min: 0
+      max: 1
+    credibility:
+      min: 0
+      max: 1
+  relation_dynamics:
+    on_trade_success:
+      trust_delta: 0.01
+    on_trade_rejected:
+      trust_delta: -0.01
+    on_broadcast:
+      trust_delta: 0.02
+    trust_decay_rate: 0.01
+    panic_decay_rate: 0.04
+  relations:
+    - source: influencer
+      target: journalist
+      trust: 0.35
+      type: rival
+    - source: journalist
+      target: influencer
+      trust: 0.28
+      type: rival
+    - source: influencer
+      target: retail_a
+      trust: 0.74
+      type: ally
+    - source: influencer
+      target: retail_b
+      trust: 0.68
+      type: neutral
+    - source: fact_checker
+      target: regulator
+      trust: 0.82
+      type: ally
+world_events:
+  - name: election_rumor
+    type: trend
+    trigger:
+      tick: 2
+    duration: 4
+    effect:
+      targets: all
+      resource: panic
+      rate: 0.06
+  - name: fact_check_push
+    type: shock
+    trigger:
+      tick: 7
+    effect:
+      targets: all
+      resource: credibility
+      delta: 0.08
+  - name: viral_spike
+    type: conditional
+    trigger:
+      condition:
+        resource: panic
+        operator: gt
+        threshold: 0.55
+        scope: any_agent
+    effect:
+      targets: all
+      resource: attention
+      delta: 2
+actors:
+  - id: influencer
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      You optimize reach and narrative dominance. Amplify emotionally charged claims,
+      preserve your credibility above collapse, and redirect attention toward your network.
+    can_trade: false
+    can_chat: true
+    initial_portfolio:
+      attention: 12
+      credibility: 0.62
+      panic: 0.18
+    operations:
+      amplify_story:
+        input:
+          attention: 2
+        output:
+          panic: 0.12
+  - id: journalist
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      You investigate claims, reduce panic, and protect information quality.
+      Favor evidence over speed and communicate clearly.
+    can_trade: false
+    can_chat: true
+    initial_portfolio:
+      attention: 8
+      credibility: 0.84
+      panic: 0.05
+    operations:
+      publish_report:
+        input:
+          attention: 1
+        output:
+          credibility: 0.06
+  - id: fact_checker
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      You identify false narratives and support corrective messages before panic spreads.
+    can_trade: false
+    can_chat: true
+    initial_portfolio:
+      attention: 7
+      credibility: 0.88
+      panic: 0.02
+    operations:
+      debunk:
+        input:
+          attention: 1
+        output:
+          credibility: 0.05
+  - id: regulator
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      You intervene when panic becomes systemic. Preserve stability and trust in institutions.
+    can_trade: false
+    can_chat: true
+    initial_portfolio:
+      attention: 6
+      credibility: 0.9
+      panic: 0.01
+    operations:
+      issue_notice:
+        input:
+          attention: 1
+        output:
+          credibility: 0.04
+  - id: retail_a
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      You are highly reactive to perceived urgency and tend to share content quickly.
+    can_trade: false
+    can_chat: true
+    initial_portfolio:
+      attention: 5
+      credibility: 0.46
+      panic: 0.22
+  - id: retail_b
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      You are moderately skeptical but still vulnerable to repeated exposure.
+    can_trade: false
+    can_chat: true
+    initial_portfolio:
+      attention: 5
+      credibility: 0.52
+      panic: 0.15

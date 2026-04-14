@@ -72,10 +72,19 @@ The repository ships with `hormuz.yaml` as the baseline scenario.
 2. Open the client.
 3. Load the scenario through the UI or use the API endpoints exposed by `api.py`.
 
+Additional examples are available in `scenarios/`:
+
+- `info-diffusion.yaml`
+- `financial-market.yaml`
+- `resource-scarcity.yaml`
+- `policy-stress.yaml`
+- `ai-negotiation.yaml`
+
 ## Project Layout
 
 - `server/` — FastAPI API and simulation engine
 - `client/` — React/Vite frontend
 - `hormuz.yaml` — reference scenario
+- `scenarios/` — additional launch scenarios
 - `CONFIG_YAML_REFERENCE.md` — YAML schema reference
 - `PAPER.md` — formal whitepaper

@@ -1,0 +1,206 @@
+global_rules:
+  epochs: 1
+  steps: 20
+  execution_mode: sequential
+  constraints:
+    reserves:
+      min: 0
+    loans:
+      min: 0
+    deposits:
+      min: 0
+    capital:
+      min: 0
+    liquidity:
+      min: 0
+  relation_dynamics:
+    on_trade_success:
+      trust_delta: 0.03
+    on_trade_rejected:
+      trust_delta: -0.02
+    on_broadcast:
+      trust_delta: 0.01
+    trust_decay_rate: 0.01
+  relations:
+    - source: central_bank
+      target: bank_a
+      trust: 0.7
+      type: neutral
+    - source: central_bank
+      target: bank_b
+      trust: 0.7
+      type: neutral
+    - source: central_bank
+      target: bank_c
+      trust: 0.7
+      type: neutral
+world_events:
+  - name: funding_shock
+    type: shock
+    trigger:
+      tick: 8
+    effect:
+      targets: all
+      resource: liquidity
+      delta: -3
+  - name: emergency_facility
+    type: conditional
+    trigger:
+      condition:
+        resource: liquidity
+        operator: lt
+        threshold: 4
+        scope: any_agent
+    effect:
+      targets: all
+      resource: reserves
+      delta: 2
+actors:
+  - id: central_bank
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      You stabilize the system, contain liquidity stress, and preserve bank functioning.
+    can_chat: true
+    can_trade: false
+    initial_portfolio:
+      reserves: 40
+      capital: 25
+      liquidity: 18
+    operations:
+      inject_reserves:
+        input:
+          capital: 1
+        output:
+          reserves: 4
+      emergency_swap:
+        input:
+          reserves: 2
+        output:
+          liquidity: 3
+  - id: bank_a
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Commercial bank. Protect liquidity and keep loan growth alive without exhausting capital.
+    can_chat: true
+    can_trade: false
+    initial_portfolio:
+      reserves: 10
+      loans: 12
+      deposits: 16
+      capital: 6
+      liquidity: 8
+    operations:
+      extend_credit:
+        input:
+          reserves: 1
+        output:
+          loans: 3
+      raise_deposits:
+        input:
+          capital: 1
+        output:
+          deposits: 2
+  - id: bank_b
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Commercial bank. Balance risk control with continued lending.
+    can_chat: true
+    can_trade: false
+    initial_portfolio:
+      reserves: 9
+      loans: 11
+      deposits: 15
+      capital: 6
+      liquidity: 7
+    operations:
+      extend_credit:
+        input:
+          reserves: 1
+        output:
+          loans: 3
+      raise_deposits:
+        input:
+          capital: 1
+        output:
+          deposits: 2
+  - id: bank_c
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Commercial bank. Survive the shock and keep counterparties confident.
+    can_chat: true
+    can_trade: false
+    initial_portfolio:
+      reserves: 8
+      loans: 10
+      deposits: 14
+      capital: 5
+      liquidity: 7
+    operations:
+      extend_credit:
+        input:
+          reserves: 1
+        output:
+          loans: 3
+      raise_deposits:
+        input:
+          capital: 1
+        output:
+          deposits: 2
+  - id: firm_a
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Firm. Seek funding, preserve liquidity, and keep productive activity alive.
+    can_chat: true
+    can_trade: false
+    initial_portfolio:
+      loans: 4
+      deposits: 3
+      capital: 5
+      liquidity: 4
+    operations:
+      invest:
+        input:
+          liquidity: 1
+        output:
+          capital: 2
+  - id: firm_b
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Firm. Prefer resilient financing and preserve liquidity during stress.
+    can_chat: true
+    can_trade: false
+    initial_portfolio:
+      loans: 4
+      deposits: 3
+      capital: 5
+      liquidity: 4
+    operations:
+      invest:
+        input:
+          liquidity: 1
+        output:
+          capital: 2
+  - id: firm_c
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Firm. React quickly to tightening credit and avoid insolvency.
+    can_chat: true
+    can_trade: false
+    initial_portfolio:
+      loans: 4
+      deposits: 2
+      capital: 4
+      liquidity: 3
+    operations:
+      invest:
+        input:
+          liquidity: 1
+        output:
+          capital: 2

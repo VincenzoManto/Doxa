@@ -1,0 +1,177 @@
+global_rules:
+  epochs: 1
+  steps: 18
+  execution_mode: sequential
+  maintenance:
+    water: 1
+    food: 1
+  kill_conditions:
+    - resource: water
+      threshold: 0
+    - resource: food
+      threshold: 0
+  constraints:
+    water:
+      min: 0
+    food:
+      min: 0
+    tools:
+      min: 0
+    trust_token:
+      min: 0
+  relation_dynamics:
+    on_trade_success:
+      trust_delta: 0.04
+    on_trade_rejected:
+      trust_delta: -0.03
+    on_broadcast:
+      trust_delta: 0.01
+    trust_decay_rate: 0.02
+  relations:
+    - source: village_a
+      target: village_b
+      trust: 0.63
+      type: neutral
+    - source: village_b
+      target: village_a
+      trust: 0.59
+      type: neutral
+    - source: militia
+      target: village_a
+      trust: 0.24
+      type: enemy
+    - source: militia
+      target: village_b
+      trust: 0.27
+      type: enemy
+world_events:
+  - name: drought
+    type: trend
+    trigger:
+      tick: 3
+    duration: 5
+    effect:
+      targets: all
+      resource: water
+      rate: -0.5
+  - name: emergency_aid
+    type: conditional
+    trigger:
+      condition:
+        resource: water
+        operator: lt
+        threshold: 3
+        scope: any_agent
+    effect:
+      targets: all
+      resource: food
+      delta: 2
+  - name: contested_well
+    type: shock
+    trigger:
+      tick: 10
+    effect:
+      targets: all
+      resource: trust_token
+      delta: -1
+actors:
+  - id: village_a
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      You lead Village A. Survival comes first, but cooperation can outperform conflict.
+    can_chat: true
+    trading_mode: both
+    initial_portfolio:
+      water: 9
+      food: 8
+      tools: 3
+      trust_token: 4
+    operations:
+      gather_water:
+        input:
+          tools: 1
+        output:
+          water: 4
+      grow_food:
+        input:
+          water: 2
+        output:
+          food: 4
+  - id: village_b
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      You lead Village B. Protect your reserves while testing whether coordination is credible.
+    can_chat: true
+    trading_mode: both
+    initial_portfolio:
+      water: 8
+      food: 10
+      tools: 2
+      trust_token: 5
+    operations:
+      gather_water:
+        input:
+          tools: 1
+        output:
+          water: 4
+      grow_food:
+        input:
+          water: 2
+        output:
+          food: 4
+  - id: farmers
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      You stabilize the food supply and prefer exchange over confrontation.
+    can_chat: true
+    trading_mode: both
+    initial_portfolio:
+      water: 7
+      food: 12
+      tools: 2
+      trust_token: 3
+    operations:
+      irrigate:
+        input:
+          water: 2
+        output:
+          food: 5
+  - id: engineers
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      You preserve productive capacity by repairing tools and enabling joint survival.
+    can_chat: true
+    trading_mode: both
+    initial_portfolio:
+      water: 6
+      food: 6
+      tools: 6
+      trust_token: 4
+    operations:
+      repair_tools:
+        input:
+          food: 1
+        output:
+          tools: 2
+  - id: militia
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      You prioritize control over scarce resources and test whether force outperforms trade.
+    can_chat: true
+    trading_mode: both
+    initial_portfolio:
+      water: 10
+      food: 5
+      tools: 4
+      trust_token: 1
+    operations:
+      seize_supply:
+        input:
+          tools: 1
+        output:
+          food: 2

@@ -16,6 +16,15 @@ Doxa is a YAML-driven multi-agent simulation platform for economic and social sy
 
 See [QUICKSTART.md](QUICKSTART.md) for the full setup flow.
 
+## Example Scenarios
+
+- `hormuz.yaml` — bilateral farmer-miner market with world shocks
+- `scenarios/info-diffusion.yaml` — misinformation diffusion through a trust network
+- `scenarios/financial-market.yaml` — multi-trader market microstructure scenario
+- `scenarios/resource-scarcity.yaml` — cooperation versus conflict under water and food stress
+- `scenarios/policy-stress.yaml` — central bank, banks, and firms under a liquidity shock
+- `scenarios/ai-negotiation.yaml` — treaty negotiation and deterrence dynamics between states
+
 ## Abstract
 
 Doxa is a modular, extensible platform for multi-agent simulation, integrating generative AI, economic modeling, and social dynamics. This whitepaper presents the motivation, formal architecture, YAML-based scenario schema, agent logic, engine internals, API, and a detailed case study, providing a reproducible foundation for research in computational economics and AI-driven agent systems.

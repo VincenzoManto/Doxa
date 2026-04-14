@@ -1,0 +1,142 @@
+global_rules:
+  epochs: 1
+  steps: 15
+  execution_mode: sequential
+  constraints:
+    credits:
+      min: 0
+    tech:
+      min: 0
+    bond:
+      min: 0
+    panic:
+      min: 0
+      max: 1
+  relation_dynamics:
+    on_trade_success:
+      trust_delta: 0.02
+    on_trade_rejected:
+      trust_delta: -0.01
+    on_broadcast:
+      trust_delta: 0.01
+    trust_decay_rate: 0.01
+    panic_decay_rate: 0.03
+  markets:
+    - resource: tech
+      currency: credits
+      initial_price: 14
+      min_price: 4
+      max_price: 60
+      clearing: per_step
+      execution_price_policy: resting
+    - resource: bond
+      currency: credits
+      initial_price: 9
+      min_price: 3
+      max_price: 25
+      clearing: per_step
+      execution_price_policy: midpoint
+  relations:
+    - source: trend_a
+      target: trend_b
+      trust: 0.66
+      type: ally
+    - source: contrarian_a
+      target: contrarian_b
+      trust: 0.64
+      type: ally
+    - source: arb_a
+      target: arb_b
+      trust: 0.58
+      type: neutral
+world_events:
+  - name: earnings_mania
+    type: shock
+    trigger:
+      tick: 4
+    effect:
+      market: tech
+      price_multiplier: 1.25
+  - name: rate_scare
+    type: shock
+    trigger:
+      tick: 8
+    effect:
+      market: bond
+      price_multiplier: 0.88
+  - name: volatility_regime
+    type: trend
+    trigger:
+      tick: 6
+    duration: 4
+    effect:
+      targets: all
+      resource: panic
+      rate: 0.05
+actors:
+  - id: trend_a
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Trend follower. Chase momentum in the strongest market and exit losing positions late.
+    trading_mode: both
+    initial_portfolio:
+      credits: 220
+      tech: 6
+      bond: 4
+      panic: 0.08
+  - id: trend_b
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Trend follower. Reinforce prevailing market direction but avoid total insolvency.
+    trading_mode: both
+    initial_portfolio:
+      credits: 240
+      tech: 5
+      bond: 5
+      panic: 0.07
+  - id: contrarian_a
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Contrarian trader. Fade overreactions and buy weakness when panic rises.
+    trading_mode: both
+    initial_portfolio:
+      credits: 260
+      tech: 4
+      bond: 8
+      panic: 0.04
+  - id: contrarian_b
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Contrarian trader. Exploit stretched order books and sell euphoria.
+    trading_mode: both
+    initial_portfolio:
+      credits: 250
+      tech: 4
+      bond: 8
+      panic: 0.05
+  - id: arb_a
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Arbitrageur. Provide liquidity, exploit mispricings, and keep inventories balanced.
+    trading_mode: both
+    initial_portfolio:
+      credits: 320
+      tech: 7
+      bond: 7
+      panic: 0.03
+  - id: arb_b
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Arbitrageur. Exploit temporary gaps between perceived value and market price.
+    trading_mode: both
+    initial_portfolio:
+      credits: 320
+      tech: 7
+      bond: 7
+      panic: 0.03

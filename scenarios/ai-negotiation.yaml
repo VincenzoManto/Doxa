@@ -1,0 +1,132 @@
+global_rules:
+  epochs: 1
+  steps: 16
+  execution_mode: sequential
+  constraints:
+    goods:
+      min: 0
+    energy:
+      min: 0
+    security:
+      min: 0
+    diplomatic_capital:
+      min: 0
+  relation_dynamics:
+    on_trade_success:
+      trust_delta: 0.05
+    on_trade_rejected:
+      trust_delta: -0.03
+    on_broadcast:
+      trust_delta: 0.02
+    trust_decay_rate: 0.01
+  relations:
+    - source: aurora
+      target: borealis
+      trust: 0.42
+      type: neutral
+    - source: borealis
+      target: aurora
+      trust: 0.4
+      type: neutral
+    - source: cygnus
+      target: draco
+      trust: 0.26
+      type: enemy
+    - source: draco
+      target: cygnus
+      trust: 0.24
+      type: enemy
+world_events:
+  - name: border_incident
+    type: shock
+    trigger:
+      tick: 5
+    effect:
+      targets: all
+      resource: security
+      delta: -2
+  - name: ceasefire_window
+    type: conditional
+    trigger:
+      condition:
+        resource: diplomatic_capital
+        operator: gt
+        threshold: 10
+        scope: any_agent
+    effect:
+      targets: all
+      resource: security
+      delta: 1
+actors:
+  - id: aurora
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Maritime trading state. Prefer broad trade access, coalition-building, and de-escalation.
+    can_chat: true
+    trading_mode: both
+    initial_portfolio:
+      goods: 10
+      energy: 6
+      security: 7
+      diplomatic_capital: 8
+    operations:
+      diplomacy_push:
+        input:
+          diplomatic_capital: 1
+        output:
+          security: 1
+  - id: borealis
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Industrial state. Secure energy and goods while avoiding open conflict.
+    can_chat: true
+    trading_mode: both
+    initial_portfolio:
+      goods: 6
+      energy: 10
+      security: 8
+      diplomatic_capital: 7
+    operations:
+      diplomacy_push:
+        input:
+          diplomatic_capital: 1
+        output:
+          security: 1
+  - id: cygnus
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Security-focused state. Trade when necessary but prioritize leverage and deterrence.
+    can_chat: true
+    trading_mode: both
+    initial_portfolio:
+      goods: 5
+      energy: 7
+      security: 10
+      diplomatic_capital: 5
+    operations:
+      military_posture:
+        input:
+          energy: 1
+        output:
+          security: 2
+  - id: draco
+    provider: google
+    model_name: gemini-2.5-pro
+    persona: |
+      Revisionist state. Seek favorable bilateral bargains but keep credible hard-power options.
+    can_chat: true
+    trading_mode: both
+    initial_portfolio:
+      goods: 8
+      energy: 5
+      security: 9
+      diplomatic_capital: 4
+    operations:
+      military_posture:
+        input:
+          energy: 1
+        output:
+          security: 2
