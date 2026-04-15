@@ -4,10 +4,7 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCENARIO_FILES = [
-    REPO_ROOT / "hormuz.yaml",
-    *sorted((REPO_ROOT / "scenarios").glob("*.yaml")),
-]
+SCENARIO_FILES = sorted((REPO_ROOT / "scenarios").glob("*.yaml"))
 
 
 def test_scenario_files_exist():
