@@ -1,0 +1,2727 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A YAML-driven multi-agent simulation platform for economic and social systems">
+      
+      
+        <meta name="author" content="Vincenzo Manto">
+      
+      
+        <link rel="canonical" href="https://vincenzomanto.github.io/Doxa/paper/">
+      
+      
+        <link rel="prev" href="../api/">
+      
+      
+        <link rel="next" href="../contributing/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Research Paper - Doxa</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#doxa-a-formal-multi-agent-simulation-framework-for-economic-and-strategic-interaction" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Doxa" class="md-header__button md-logo" aria-label="Doxa" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Doxa
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Research Paper
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/VincenzoManto/Doxa" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    VincenzoManto/Doxa
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../architecture/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Research
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../contributing/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Community
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Doxa" class="md-nav__button md-logo" aria-label="Doxa" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Doxa
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/VincenzoManto/Doxa" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    VincenzoManto/Doxa
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scenarios
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../yaml-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    YAML Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Research
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Research
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#abstract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Abstract
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-introduction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Introduction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-formal-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        **2. Formal Model **
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="**2. Formal Model **">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-system-definition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 System Definition
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-agent-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Agent Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-bounded-rationality-via-llms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 Bounded Rationality via LLMs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24-market-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 Market Model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2.4 Market Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#clearing-mechanisms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clearing Mechanisms
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#production-and-transformation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Production and Transformation**
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25-game-theoretic-interpretation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5 Game-Theoretic Interpretation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2.5 Game-Theoretic Interpretation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#event-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event Process
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#equilibrium-concept" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Equilibrium Concept
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#26-social-and-trust-dynamics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.6 Social and Trust Dynamics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2.6 Social and Trust Dynamics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#trust-network" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trust Network
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-system-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. System Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. System Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#core-components" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Components
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#execution-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution Loop
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#31-engine-implementation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Engine Implementation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#determinism" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Determinism
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#31-declarative-scenario-specification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Declarative Scenario Specification
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.1 Declarative Scenario Specification">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#formal-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Formal Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-event-dynamics-and-exogenous-shocks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Event Dynamics and Exogenous Shocks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Types:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-communication-and-strategic-interaction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Communication and Strategic Interaction
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-analytical-properties" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Analytical Properties
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Analytical Properties">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-existence-of-feasible-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Existence of Feasible Paths
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-non-equilibrium-dynamics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Non-Equilibrium Dynamics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-emergent-price-formation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Emergent Price Formation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-experimental-design-framework" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Experimental Design Framework
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Experimental Design Framework">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#independent-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Independent Variables
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dependent-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dependent Variables
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-case-study-bilateral-production-economy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Case Study: Bilateral Production Economy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Case Study: Bilateral Production Economy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dynamics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dynamics
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-applications" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Applications
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Applications">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#economic-research" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Economic Research
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#game-theory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Game Theory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ai-systems" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AI Systems
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-validation-and-consistency-guarantees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Validation and Consistency Guarantees
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-conclusion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Conclusion
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-future-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Future Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="11. Future Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-learning-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Learning Agents
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-mechanism-design-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Mechanism Design Layer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-distributed-simulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Distributed Simulation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-formal-analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Formal Analysis
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Community
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Community
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#abstract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Abstract
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-introduction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Introduction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-formal-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        **2. Formal Model **
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="**2. Formal Model **">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-system-definition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 System Definition
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-agent-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Agent Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-bounded-rationality-via-llms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 Bounded Rationality via LLMs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24-market-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 Market Model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2.4 Market Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#clearing-mechanisms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clearing Mechanisms
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#production-and-transformation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Production and Transformation**
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25-game-theoretic-interpretation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5 Game-Theoretic Interpretation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2.5 Game-Theoretic Interpretation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#event-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event Process
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#equilibrium-concept" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Equilibrium Concept
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#26-social-and-trust-dynamics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.6 Social and Trust Dynamics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2.6 Social and Trust Dynamics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#trust-network" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trust Network
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-system-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. System Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. System Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#core-components" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Components
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#execution-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution Loop
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#31-engine-implementation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Engine Implementation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#determinism" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Determinism
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#31-declarative-scenario-specification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Declarative Scenario Specification
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.1 Declarative Scenario Specification">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#formal-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Formal Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-event-dynamics-and-exogenous-shocks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Event Dynamics and Exogenous Shocks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Types:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-communication-and-strategic-interaction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Communication and Strategic Interaction
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-analytical-properties" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Analytical Properties
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Analytical Properties">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-existence-of-feasible-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Existence of Feasible Paths
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-non-equilibrium-dynamics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Non-Equilibrium Dynamics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-emergent-price-formation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Emergent Price Formation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-experimental-design-framework" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Experimental Design Framework
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Experimental Design Framework">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#independent-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Independent Variables
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dependent-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dependent Variables
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-case-study-bilateral-production-economy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Case Study: Bilateral Production Economy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Case Study: Bilateral Production Economy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dynamics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dynamics
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-applications" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Applications
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Applications">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#economic-research" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Economic Research
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#game-theory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Game Theory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ai-systems" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AI Systems
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-validation-and-consistency-guarantees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Validation and Consistency Guarantees
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-conclusion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Conclusion
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-future-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Future Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="11. Future Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-learning-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Learning Agents
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-mechanism-design-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Mechanism Design Layer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-distributed-simulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Distributed Simulation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-formal-analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Formal Analysis
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="doxa-a-formal-multi-agent-simulation-framework-for-economic-and-strategic-interaction"><strong>Doxa: A Formal Multi-Agent Simulation Framework for Economic and Strategic Interaction</strong><a class="headerlink" href="#doxa-a-formal-multi-agent-simulation-framework-for-economic-and-strategic-interaction" title="Permanent link">&para;</a></h1>
+<h2 id="abstract"><strong>Abstract</strong><a class="headerlink" href="#abstract" title="Permanent link">&para;</a></h2>
+<p>We introduce <strong>Doxa</strong>, a formal computational framework for simulating decentralized economic systems populated by heterogeneous, AI-driven agents. The platform integrates <strong>agent-based modeling</strong>, <strong>market microstructure</strong>, and <strong>dynamic game theory</strong>, enabling the study of strategic interaction under bounded rationality.</p>
+<p>Doxa is defined by a <strong>declarative configuration language</strong>, a deterministic simulation engine, and a modular architecture supporting endogenous communication, trust dynamics, and exogenous shocks. Agents are powered by large language models, enabling adaptive reasoning and negotiation in natural language.</p>
+<p>We formalize the system as a <strong>discrete-time stochastic game with endogenous network formation</strong>, and demonstrate how equilibrium-like structures emerge from decentralized interactions rather than being imposed ex ante. The framework enables controlled experimentation in computational economics, mechanism design, and AI-driven markets.</p>
+<hr />
+<h2 id="1-introduction"><strong>1. Introduction</strong><a class="headerlink" href="#1-introduction" title="Permanent link">&para;</a></h2>
+<p>The study of decentralized economic systems requires tools capable of modeling <strong>heterogeneous agents</strong>, <strong>strategic interaction</strong>, and <strong>non-equilibrium dynamics</strong>. Traditional frameworks in computational economics lack:</p>
+<ul>
+<li>flexible scenario specification</li>
+<li>endogenous communication and trust dynamics</li>
+<li>integration of modern AI reasoning capabilities</li>
+</ul>
+<p>Doxa addresses these limitations by introducing a unified architecture where:</p>
+<ul>
+<li>agents are <strong>strategic decision-makers</strong></li>
+<li>markets implement <strong>explicit clearing mechanisms</strong></li>
+<li>interactions generate <strong>emergent macro-level phenomena</strong></li>
+</ul>
+<p>The system can be interpreted as a <strong>computable economy</strong> where agents solve constrained optimization problems under uncertainty, with incomplete information and evolving beliefs.</p>
+<p>Classical approaches impose equilibrium assumptions. However, real systems operate <strong>out of equilibrium</strong>, with continuous adjustment driven by local decisions.</p>
+<p>Doxa takes a different stance:</p>
+<blockquote>
+<p>Economic structure is not assumed. It is <em>generated</em>.</p>
+</blockquote>
+<p>The framework enables simulation of:</p>
+<ul>
+<li>endogenous price formation</li>
+<li>trust-based coordination</li>
+<li>strategic negotiation under uncertainty</li>
+</ul>
+<p>The key innovation is combining:</p>
+<ul>
+<li>formal economic structure</li>
+<li>programmable environments</li>
+<li>LLM-based agent cognition</li>
+</ul>
+<hr />
+<h2 id="2-formal-model">**2. Formal Model **<a class="headerlink" href="#2-formal-model" title="Permanent link">&para;</a></h2>
+<h3 id="21-system-definition"><strong>2.1 System Definition</strong><a class="headerlink" href="#21-system-definition" title="Permanent link">&para;</a></h3>
+<p>A Doxa simulation is defined as:</p>
+<div class="arithmatex">\[
+\mathcal{D} = (\mathcal{A}, \mathcal{R}, \mathcal{M}, \mathcal{E}, \mathcal{T})
+\]</div>
+<p>where:</p>
+<ul>
+<li>( <span class="arithmatex">\(\mathcal{A}\)</span> ): set of agents</li>
+<li>( <span class="arithmatex">\(\mathcal{R}\)</span> ): resource space</li>
+<li>( <span class="arithmatex">\(\mathcal{M}\)</span> ): markets</li>
+<li>( <span class="arithmatex">\(\mathcal{E}\)</span> ): event processes</li>
+<li>( <span class="arithmatex">\(\mathcal{T}\)</span> ): transition operator</li>
+</ul>
+<p>Time is discrete: ( <span class="arithmatex">\(t = 0,1,\dots,T\)</span> )</p>
+<hr />
+<h3 id="22-agent-structure"><strong>2.2 Agent Structure</strong><a class="headerlink" href="#22-agent-structure" title="Permanent link">&para;</a></h3>
+<p>Each agent ( <span class="arithmatex">\(a \in \mathcal{A}\)</span> ) is defined by:</p>
+<div class="arithmatex">\[
+a = (P_a^t, U_a, \Sigma_a, \mathcal{B}_a^t, \Theta_a)
+\]</div>
+<p>where:</p>
+<ul>
+<li>( <span class="arithmatex">\(P_a^t \in \mathbb{R}_+^{|\mathcal{R}|}\)</span> ): portfolio</li>
+<li>( <span class="arithmatex">\(U_a\)</span> ): utility function</li>
+<li>( <span class="arithmatex">\(\Sigma_a\)</span> ): strategy space</li>
+<li>( <span class="arithmatex">\(\mathcal{B}_a^t\)</span> ): belief state</li>
+<li>( <span class="arithmatex">\(\Theta_a\)</span> ): behavioral parameters</li>
+</ul>
+<p>Agents, emergently, try to solve:</p>
+<div class="arithmatex">\[
+\max_{\sigma_a \in \Sigma_a} \mathbb{E}\left[\sum_{t=0}^T \beta_a^t U_a(P_a^t)\right]
+\]</div>
+<p>subject to feasibility constraints. Agents are not guaranteed to solve this problem optimally, but it serves as a normative benchmark for their behavior. Their actions and thoughts are indeed emergent from their interactions with the environment and other agents, but constraints and incentives are designed to encourage them to approximate this optimization process.</p>
+<p>The agent acts based on its current portfolio, beliefs, and the context of the environment, which includes market conditions and the actions of other agents. The strategy space ( <span class="arithmatex">\(\Sigma_a\)</span> ) encompasses all possible actions, including trading, communication, and resource transformation.</p>
+<p>It is important to note that while agents are designed to be utility-maximizing, their actual behavior may deviate from this ideal due to bounded rationality, limited information, and the complexity of the environment or, more technically, based on inhereted stochastic elements of LLMs reasoning. This is where the integration of LLMs comes into play, allowing agents to use grasp the environment and make decisions in a more human-like, sometimes suboptimal way or apparently irrational, but still strategically coherent manner.</p>
+<hr />
+<h3 id="23-bounded-rationality-via-llms"><strong>2.3 Bounded Rationality via LLMs</strong><a class="headerlink" href="#23-bounded-rationality-via-llms" title="Permanent link">&para;</a></h3>
+<p>Agents do not solve the optimization problem exactly.</p>
+<p>Instead, decisions are approximated by:</p>
+<div class="arithmatex">\[
+\sigma_a^t \sim \pi_{\theta}(P_a^t, \mathcal{B}_a^t, \text{context})
+\]</div>
+<p>where ( <span class="arithmatex">\(\pi_{\theta}\)</span> ) is an LLM-induced policy.</p>
+<p>Implications:</p>
+<ul>
+<li>non-stationary strategies</li>
+<li>heuristic reasoning</li>
+<li>path dependence</li>
+</ul>
+<p>This places Doxa in the class of <strong>behavioral computational economies</strong>.</p>
+<hr />
+<h3 id="24-market-model"><strong>2.4 Market Model</strong><a class="headerlink" href="#24-market-model" title="Permanent link">&para;</a></h3>
+<p>Markets ( <span class="arithmatex">\(m \in \mathcal{M}\)</span> ) are defined as tuples:</p>
+<div class="arithmatex">\[
+m = (r, c, \pi, \Pi, \kappa)
+\]</div>
+<p>where:</p>
+<ul>
+<li>( <span class="arithmatex">\(r\)</span> ): traded resource</li>
+<li>( <span class="arithmatex">\(c\)</span> ): numeraire (currency)</li>
+<li>( <span class="arithmatex">\(\pi\)</span> ): price</li>
+<li>( <span class="arithmatex">\(\Pi\)</span> ): price bounds</li>
+<li>( <span class="arithmatex">\(\kappa\)</span> ): clearing mechanism</li>
+</ul>
+<p>Supported mechanisms:</p>
+<ul>
+<li>continuous double auction (LOB)</li>
+<li>periodic clearing</li>
+<li>call auctions</li>
+</ul>
+<p>Market makers implement:</p>
+<div class="arithmatex">\[
+q^{bid/ask} = \pi \pm s + \kappa \cdot inventory
+\]</div>
+<p>introducing liquidity and stabilizing price dynamics.</p>
+<h4 id="clearing-mechanisms"><strong>Clearing Mechanisms</strong><a class="headerlink" href="#clearing-mechanisms" title="Permanent link">&para;</a></h4>
+<ol>
+<li>Continuous double auction</li>
+<li>Batch clearing</li>
+<li>Call auction</li>
+</ol>
+<p>Matching function:</p>
+<div class="arithmatex">\[
+\mathcal{M}: \mathcal{O}_t \rightarrow \text{Trades}_t
+\]</div>
+<p>where ( <span class="arithmatex">\(\mathcal{O}_t\)</span> ) is the set of orders at time ( <span class="arithmatex">\(t\)</span> ).</p>
+<h4 id="production-and-transformation">Production and Transformation**<a class="headerlink" href="#production-and-transformation" title="Permanent link">&para;</a></h4>
+<p>Agents have production functions:</p>
+<div class="arithmatex">\[
+f_a: \mathbb{R}_{*+}^{|\mathcal{R}|} \rightarrow \mathbb{R}_{*+}^{|\mathcal{R}|}
+\]</div>
+<p>Example:</p>
+<div class="arithmatex">\[
+f_{farmer}(gold) = 4 \cdot corn
+\]</div>
+<p>This introduces:</p>
+<ul>
+<li>endogenous supply</li>
+<li>interdependence across agents</li>
+</ul>
+<hr />
+<h3 id="25-game-theoretic-interpretation"><strong>2.5 Game-Theoretic Interpretation</strong><a class="headerlink" href="#25-game-theoretic-interpretation" title="Permanent link">&para;</a></h3>
+<p>The system defines a <strong>dynamic stochastic game</strong>:</p>
+<ul>
+<li>players: agents</li>
+<li>actions: trade, communicate, transform resources</li>
+<li>payoffs: utility over portfolios</li>
+</ul>
+<p>At each timestep:</p>
+<div class="arithmatex">\[
+G_t = (\mathcal{A}, \Sigma, U, T)
+\]</div>
+<p>where ( <span class="arithmatex">\(T\)</span> ) is the transition function induced by:</p>
+<ul>
+<li>market clearing</li>
+<li>agent actions</li>
+<li>world events</li>
+</ul>
+<p>Equilibria are not imposed but <strong>emerge dynamically</strong>, allowing study of:</p>
+<ul>
+<li>bounded rational equilibria</li>
+<li>coordination failures</li>
+<li>market inefficiencies</li>
+</ul>
+<h4 id="event-process"><strong>Event Process</strong><a class="headerlink" href="#event-process" title="Permanent link">&para;</a></h4>
+<p>Events are stochastic processes:</p>
+<div class="arithmatex">\[
+E_t \sim \mathcal{P}(E \mid S_t)
+\]</div>
+<p>State transition:</p>
+<div class="arithmatex">\[
+S_{t+1} = \mathcal{T}(S_t, A_t, E_t)
+\]</div>
+<p>Events introduce:</p>
+<ul>
+<li>non-stationarity</li>
+<li>regime shifts</li>
+<li>exogenous shocks</li>
+</ul>
+<h4 id="equilibrium-concept"><strong>Equilibrium Concept</strong><a class="headerlink" href="#equilibrium-concept" title="Permanent link">&para;</a></h4>
+<p>Classical Nash equilibrium is intractable.</p>
+<p>Instead, Doxa approximates:</p>
+<ul>
+<li><strong>behavioral equilibrium</strong></li>
+<li><strong>empirical stationary distributions</strong></li>
+<li><strong>policy convergence states</strong></li>
+</ul>
+<hr />
+<h3 id="26-social-and-trust-dynamics"><strong>2.6 Social and Trust Dynamics</strong><a class="headerlink" href="#26-social-and-trust-dynamics" title="Permanent link">&para;</a></h3>
+<p>Relations form a weighted directed graph:</p>
+<div class="arithmatex">\[
+G = (V, E), \quad E = \{(i,j,t_{ij})\}
+\]</div>
+<p>Trust evolves as:</p>
+<div class="arithmatex">\[
+t_{ij}^{t+1} = (1 - \delta)t_{ij}^t + \Delta_{ij}
+\]</div>
+<p>where:</p>
+<ul>
+<li>( <span class="arithmatex">\(\delta\)</span> ): decay rate</li>
+<li>( <span class="arithmatex">\(\Delta_{ij}\)</span> ): event-driven update</li>
+</ul>
+<p>Trust affects:</p>
+<ul>
+<li>probability of trade acceptance</li>
+<li>negotiation outcomes</li>
+<li>coalition formation</li>
+</ul>
+<h4 id="trust-network"><strong>Trust Network</strong><a class="headerlink" href="#trust-network" title="Permanent link">&para;</a></h4>
+<p>Define a directed weighted graph:</p>
+<div class="arithmatex">\[
+G_t = (\mathcal{A}, E_t)
+\]</div>
+<p>with weights:</p>
+<div class="arithmatex">\[
+t_{ij}^t \in [0,1]
+\]</div>
+<p>Update rule:</p>
+<div class="arithmatex">\[
+t_{ij}^{t+1} = (1 - \delta)t_{ij}^t + \phi(\text{interaction})
+\]</div>
+<p>where ( <span class="arithmatex">\(\delta\)</span> ) is a decay factor and ( <span class="arithmatex">\(\phi\)</span> ) captures the impact of interactions (e.g., successful trade increases trust, failed negotiation decreases it).</p>
+<p>Trust affects:</p>
+<ul>
+<li>probability of trade</li>
+<li>negotiation outcomes</li>
+<li>coalition formation</li>
+</ul>
+<hr />
+<h2 id="3-system-architecture"><strong>3. System Architecture</strong><a class="headerlink" href="#3-system-architecture" title="Permanent link">&para;</a></h2>
+<p>Doxa implements a modular architecture:</p>
+<h3 id="core-components"><strong>Core Components</strong><a class="headerlink" href="#core-components" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Engine</strong>: deterministic orchestrator of simulation dynamics</li>
+<li><strong>Environment</strong>: state container (agents, portfolios, markets)</li>
+<li><strong>Agents</strong>: decision units with LLM-based reasoning</li>
+<li><strong>Market Engine</strong>: order matching and price formation</li>
+<li><strong>Event Scheduler</strong>: exogenous shocks and trends</li>
+<li><strong>Relation Graph</strong>: social structure</li>
+</ul>
+<h3 id="execution-loop"><strong>Execution Loop</strong><a class="headerlink" href="#execution-loop" title="Permanent link">&para;</a></h3>
+<p>At each timestep:</p>
+<ol>
+<li>Maintenance and constraint enforcement</li>
+<li>Agent decision phase</li>
+<li>Market clearing</li>
+<li>Event execution</li>
+<li>State update and logging</li>
+</ol>
+<p>This defines a <strong>discrete-time dynamical system</strong>.</p>
+<h3 id="31-engine-implementation"><strong>3.1 Engine Implementation</strong><a class="headerlink" href="#31-engine-implementation" title="Permanent link">&para;</a></h3>
+<p>The engine implements:</p>
+<div class="arithmatex">\[
+S_{t+1} = \mathcal{T}(S_t)
+\]</div>
+<p>via the loop:</p>
+<ol>
+<li>maintenance constraints</li>
+<li>agent decisions</li>
+<li>market clearing</li>
+<li>event execution</li>
+<li>belief update</li>
+</ol>
+<h3 id="determinism"><strong>Determinism</strong><a class="headerlink" href="#determinism" title="Permanent link">&para;</a></h3>
+<p>Given:</p>
+<ul>
+<li>fixed YAML</li>
+<li>fixed seeds</li>
+</ul>
+<p>the system is reproducible.</p>
+<h3 id="31-declarative-scenario-specification"><strong>3.1 Declarative Scenario Specification</strong><a class="headerlink" href="#31-declarative-scenario-specification" title="Permanent link">&para;</a></h3>
+<p>Doxa uses a <strong>YAML-based domain-specific language</strong> enabling full reproducibility.</p>
+<h4 id="formal-structure"><strong>Formal Structure</strong><a class="headerlink" href="#formal-structure" title="Permanent link">&para;</a></h4>
+<p>A scenario is defined as:</p>
+<div class="arithmatex">\[
+\mathcal{S} = (\mathcal{R}, \mathcal{A}, \mathcal{M}, \mathcal{E})
+\]</div>
+<p>where:</p>
+<ul>
+<li>( <span class="arithmatex">\(\mathcal{R}\)</span> ): resources</li>
+<li>( <span class="arithmatex">\(\mathcal{A}\)</span> ): agents</li>
+<li>( <span class="arithmatex">\(\mathcal{M}\)</span> ): markets</li>
+<li>( <span class="arithmatex">\(\mathcal{E}\)</span> ): events</li>
+</ul>
+<p>This allows:</p>
+<ul>
+<li>deterministic replay</li>
+<li>parameter sweeps</li>
+<li>comparative statics</li>
+</ul>
+<hr />
+<h3 id="32-event-dynamics-and-exogenous-shocks"><strong>3.2 Event Dynamics and Exogenous Shocks</strong><a class="headerlink" href="#32-event-dynamics-and-exogenous-shocks" title="Permanent link">&para;</a></h3>
+<p>Events introduce non-stationarity:</p>
+<h3 id="types">Types:<a class="headerlink" href="#types" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Shock</strong>: instantaneous perturbation</li>
+<li><strong>Trend</strong>: persistent drift</li>
+<li><strong>Conditional</strong>: state-triggered</li>
+</ul>
+<p>Formally:</p>
+<div class="arithmatex">\[
+P_{t+1} = f(P_t, A_t, E_t)
+\]</div>
+<p>where ( <span class="arithmatex">\(E_t\)</span> ) modifies transition dynamics.</p>
+<p>This enables modeling of:</p>
+<ul>
+<li>supply shocks</li>
+<li>crises and panic</li>
+<li>policy interventions</li>
+</ul>
+<hr />
+<h3 id="33-communication-and-strategic-interaction"><strong>3.3 Communication and Strategic Interaction</strong><a class="headerlink" href="#33-communication-and-strategic-interaction" title="Permanent link">&para;</a></h3>
+<p>Agents exchange structured messages:</p>
+<div class="arithmatex">\[
+m = (i, j, \tau, payload)
+\]</div>
+<p>Protocols include:</p>
+<ul>
+<li>propose</li>
+<li>accept</li>
+<li>reject</li>
+</ul>
+<p>This introduces:</p>
+<ul>
+<li>incomplete information</li>
+<li>signaling games</li>
+<li>negotiation equilibria</li>
+</ul>
+<p>LLMs approximate reasoning under <strong>bounded rationality</strong>, enabling natural-language strategy formation.</p>
+<hr />
+<h2 id="4-analytical-properties"><strong>4. Analytical Properties</strong><a class="headerlink" href="#4-analytical-properties" title="Permanent link">&para;</a></h2>
+<h3 id="41-existence-of-feasible-paths"><strong>4.1 Existence of Feasible Paths</strong><a class="headerlink" href="#41-existence-of-feasible-paths" title="Permanent link">&para;</a></h3>
+<p>Given constraint validation, there exists at least one feasible trajectory:</p>
+<div class="arithmatex">\[
+\exists {S_t}_{t=0}^T
+\]</div>
+<hr />
+<h3 id="42-non-equilibrium-dynamics"><strong>4.2 Non-Equilibrium Dynamics</strong><a class="headerlink" href="#42-non-equilibrium-dynamics" title="Permanent link">&para;</a></h3>
+<p>The system does not guarantee convergence:</p>
+<ul>
+<li>cycles may emerge</li>
+<li>chaotic dynamics possible</li>
+<li>path dependence dominates</li>
+</ul>
+<hr />
+<h3 id="43-emergent-price-formation"><strong>4.3 Emergent Price Formation</strong><a class="headerlink" href="#43-emergent-price-formation" title="Permanent link">&para;</a></h3>
+<p>Prices evolve as:</p>
+<div class="arithmatex">\[
+\pi_{t+1} = \pi_t + \Delta(\text{order flow})
+\]</div>
+<p>No Walrasian auctioneer is assumed.</p>
+<hr />
+<h2 id="5-experimental-design-framework"><strong>5. Experimental Design Framework</strong><a class="headerlink" href="#5-experimental-design-framework" title="Permanent link">&para;</a></h2>
+<p>Doxa enables controlled experiments:</p>
+<h3 id="independent-variables"><strong>Independent Variables</strong><a class="headerlink" href="#independent-variables" title="Permanent link">&para;</a></h3>
+<ul>
+<li>agent preferences</li>
+<li>market structure</li>
+<li>event processes</li>
+</ul>
+<h3 id="dependent-variables"><strong>Dependent Variables</strong><a class="headerlink" href="#dependent-variables" title="Permanent link">&para;</a></h3>
+<ul>
+<li>price volatility</li>
+<li>allocation efficiency</li>
+<li>network structure</li>
+</ul>
+<h3 id="metrics"><strong>Metrics</strong><a class="headerlink" href="#metrics" title="Permanent link">&para;</a></h3>
+<ul>
+<li>allocative efficiency</li>
+<li>Gini coefficient</li>
+<li>trade volume</li>
+<li>convergence speed</li>
+</ul>
+<hr />
+<h2 id="6-case-study-bilateral-production-economy"><strong>6. Case Study: Bilateral Production Economy</strong><a class="headerlink" href="#6-case-study-bilateral-production-economy" title="Permanent link">&para;</a></h2>
+<p>Two-agent system:</p>
+<ul>
+<li>Agent A: transforms gold → corn</li>
+<li>Agent B: transforms corn → gold</li>
+</ul>
+<h3 id="structure"><strong>Structure</strong><a class="headerlink" href="#structure" title="Permanent link">&para;</a></h3>
+<div class="arithmatex">\[
+A \leftrightarrow B
+\]</div>
+<p>This creates:</p>
+<ul>
+<li>mutual dependence</li>
+<li>endogenous trade necessity</li>
+</ul>
+<h3 id="dynamics"><strong>Dynamics</strong><a class="headerlink" href="#dynamics" title="Permanent link">&para;</a></h3>
+<ul>
+<li>shocks → price spikes</li>
+<li>scarcity → bargaining power shifts</li>
+<li>trust → trade friction</li>
+</ul>
+<p>Equivalent to:</p>
+<ul>
+<li>a minimal general equilibrium model</li>
+<li>with production and strategic interaction</li>
+</ul>
+<hr />
+<h2 id="7-applications"><strong>7. Applications</strong><a class="headerlink" href="#7-applications" title="Permanent link">&para;</a></h2>
+<h3 id="economic-research"><strong>Economic Research</strong><a class="headerlink" href="#economic-research" title="Permanent link">&para;</a></h3>
+<ul>
+<li>market efficiency under bounded rationality</li>
+<li>liquidity crises</li>
+<li>price discovery</li>
+</ul>
+<h3 id="game-theory"><strong>Game Theory</strong><a class="headerlink" href="#game-theory" title="Permanent link">&para;</a></h3>
+<ul>
+<li>repeated games with communication</li>
+<li>endogenous coalition formation</li>
+</ul>
+<h3 id="ai-systems"><strong>AI Systems</strong><a class="headerlink" href="#ai-systems" title="Permanent link">&para;</a></h3>
+<ul>
+<li>emergent coordination</li>
+<li>language-mediated strategy</li>
+</ul>
+<h3 id="policy"><strong>Policy</strong><a class="headerlink" href="#policy" title="Permanent link">&para;</a></h3>
+<ul>
+<li>intervention testing</li>
+<li>systemic risk</li>
+</ul>
+<hr />
+<h2 id="8-validation-and-consistency-guarantees"><strong>8. Validation and Consistency Guarantees</strong><a class="headerlink" href="#8-validation-and-consistency-guarantees" title="Permanent link">&para;</a></h2>
+<p>The system enforces:</p>
+<ul>
+<li>feasibility of constraints</li>
+<li>resource conservation</li>
+<li>market consistency</li>
+<li>reachability of objectives</li>
+</ul>
+<p>This ensures simulations are:</p>
+<ul>
+<li>internally coherent</li>
+<li>economically meaningful</li>
+<li>reproducible</li>
+</ul>
+<hr />
+<h2 id="9-limitations"><strong>9. Limitations</strong><a class="headerlink" href="#9-limitations" title="Permanent link">&para;</a></h2>
+<ul>
+<li>no formal equilibrium guarantees</li>
+<li>scalability constraints</li>
+<li>dependence on LLM quality</li>
+</ul>
+<p>Agents are:</p>
+<ul>
+<li>not fully rational</li>
+<li>not stationary</li>
+<li>sensitive to prompting</li>
+</ul>
+<hr />
+<h2 id="10-conclusion"><strong>10. Conclusion</strong><a class="headerlink" href="#10-conclusion" title="Permanent link">&para;</a></h2>
+<p>Doxa reframes economic modeling as:</p>
+<blockquote>
+<p>a programmable, dynamic system of interacting agents</p>
+</blockquote>
+<p>It eliminates:</p>
+<ul>
+<li>static equilibrium assumptions</li>
+<li>rigid analytical constraints</li>
+</ul>
+<p>and replaces them with:</p>
+<ul>
+<li>simulation-based inference</li>
+<li>emergent structure</li>
+<li>adaptive behavior</li>
+</ul>
+<p>This positions Doxa as a foundational tool for:</p>
+<ul>
+<li>computational economics</li>
+<li>AI-driven market design</li>
+<li>next-generation economic experimentation</li>
+</ul>
+<p>Doxa represents a shift toward <strong>programmable economic systems</strong>, where:</p>
+<ul>
+<li>agents are autonomous and adaptive</li>
+<li>markets are explicitly modeled</li>
+<li>dynamics emerge from interaction</li>
+</ul>
+<p>It bridges:</p>
+<ul>
+<li>agent-based modeling</li>
+<li>computational economics</li>
+<li>modern AI</li>
+</ul>
+<p>The framework provides a foundation for studying <strong>complex adaptive systems</strong> where equilibrium is not assumed but <strong>constructed through interaction</strong>.</p>
+<hr />
+<h2 id="11-future-works"><strong>11. Future Works</strong><a class="headerlink" href="#11-future-works" title="Permanent link">&para;</a></h2>
+<p>Critical directions:</p>
+<h3 id="1-learning-agents"><strong>1. Learning Agents</strong><a class="headerlink" href="#1-learning-agents" title="Permanent link">&para;</a></h3>
+<p>Hybrid LLM + reinforcement learning:</p>
+<div class="arithmatex">\[
+\pi_a = \lambda \pi_{LLM} + (1-\lambda)\pi_{RL}
+\]</div>
+<h3 id="2-mechanism-design-layer"><strong>2. Mechanism Design Layer</strong><a class="headerlink" href="#2-mechanism-design-layer" title="Permanent link">&para;</a></h3>
+<p>Design optimal markets:</p>
+<div class="arithmatex">\[
+\max_{\kappa} ; \text{Efficiency}(\kappa)
+\]</div>
+<h3 id="3-distributed-simulation"><strong>3. Distributed Simulation</strong><a class="headerlink" href="#3-distributed-simulation" title="Permanent link">&para;</a></h3>
+<p>Scaling to ( $ 10^5+ $ ) agents</p>
+<h3 id="4-formal-analysis"><strong>4. Formal Analysis</strong><a class="headerlink" href="#4-formal-analysis" title="Permanent link">&para;</a></h3>
+<ul>
+<li>convergence proofs</li>
+<li>stability conditions</li>
+<li>equilibrium approximation bounds</li>
+<li>distributed simulation architecture</li>
+<li>endogenous learning (RL + LLM hybrid)</li>
+<li>mechanism design modules</li>
+<li>formal equilibrium analysis tools</li>
+</ul>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../api/" class="md-footer__link md-footer__link--prev" aria-label="Previous: API Reference">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                API Reference
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../contributing/" class="md-footer__link md-footer__link--next" aria-label="Next: Contributing">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Contributing
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.footer", "navigation.indexes", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tabs.link"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
