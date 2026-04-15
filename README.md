@@ -2,7 +2,7 @@
 
 # Doxa: A Multi-Agent Simulation Platform for Economic and Social Dynamics
 
-[Quick Start](QUICKSTART.md) | [Contributing](CONTRIBUTING.md) | [Code of Conduct](CODE_OF_CONDUCT.md) | [Paper](PAPER.md) | [YAML Reference](CONFIG_YAML_REFERENCE.md)
+[Quick Start](QUICKSTART.md) | [Contributing](CONTRIBUTING.md) | [Code of Conduct](CODE_OF_CONDUCT.md) | [Paper](PAPER.md) | [YAML Reference](CONFIG_YAML_REFERENCE.md) | [Full Docs](https://vincenzomanto.github.io/Doxa)
 
 Doxa is a YAML-driven multi-agent simulation platform for economic and social systems. It combines LLM-backed agents, market microstructure, relation graphs, and world events behind a FastAPI API and a React client.
 
