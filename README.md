@@ -6,6 +6,10 @@
 
 Doxa is a YAML-driven multi-agent simulation platform for economic and social systems. It combines LLM-backed agents, market microstructure, relation graphs, and world events behind a FastAPI API and a React client.
 
+[![CI](https://github.com/VincenzoManto/Doxa/actions/workflows/ci.yml/badge.svg)](https://github.com/VincenzoManto/Doxa/actions/workflows/ci.yml)
+
+[![Deploy Docs](https://github.com/VincenzoManto/Doxa/actions/workflows/docs.yml/badge.svg)](https://github.com/VincenzoManto/Doxa/actions/workflows/docs.yml)
+
 ## Quick Start
 
 1. Copy `.env.example` to `.env` and add your provider keys.
