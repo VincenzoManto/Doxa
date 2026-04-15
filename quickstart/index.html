@@ -603,6 +603,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#option-c-pip-with-backend-cli-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option C: Pip with backend CLI only
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#run-tests" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1077,6 +1088,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#option-c-pip-with-backend-cli-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option C: Pip with backend CLI only
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#run-tests" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1171,9 +1193,15 @@
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>npm<span class="w"> </span>run<span class="w"> </span>dev
 </span></code></pre></div>
 <p>The Vite dev server proxies <code>/api</code> and <code>/ws</code> to <code>http://localhost:5000</code>.</p>
+<h2 id="option-c-pip-with-backend-cli-only">Option C: Pip with backend CLI only<a class="headerlink" href="#option-c-pip-with-backend-cli-only" title="Permanent link">&para;</a></h2>
+<p>The Doxa backend is available as a Python package on PyPI: <a href="https://pypi.org/project/doxa-ai/">doxa-ai</a></p>
+<p>Install and use the CLI:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>pip<span class="w"> </span>install<span class="w"> </span>doxa-ai
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>doxa<span class="w"> </span>run<span class="w"> </span>--help
+</span></code></pre></div>
 <h2 id="run-tests">Run Tests<a class="headerlink" href="#run-tests" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nb">cd</span><span class="w"> </span>server
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>pytest<span class="w"> </span>tests<span class="w"> </span>-v
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nb">cd</span><span class="w"> </span>server
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>pytest<span class="w"> </span>tests<span class="w"> </span>-v
 </span></code></pre></div>
 <h2 id="first-simulation">First Simulation<a class="headerlink" href="#first-simulation" title="Permanent link">&para;</a></h2>
 <p>The repository ships with <code>scenarios/hormuz.yaml</code> as the baseline scenario.</p>
