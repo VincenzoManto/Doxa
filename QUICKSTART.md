@@ -66,7 +66,7 @@ pytest tests -v
 
 ## First Simulation
 
-The repository ships with `hormuz.yaml` as the baseline scenario.
+The repository ships with `scenarios/hormuz.yaml` as the baseline scenario.
 
 1. Start the backend.
 2. Open the client.
@@ -84,7 +84,7 @@ Additional examples are available in `scenarios/`:
 
 - `server/` — FastAPI API and simulation engine
 - `client/` — React/Vite frontend
-- `hormuz.yaml` — reference scenario
+- `scenarios/hormuz.yaml` — reference scenario
 - `scenarios/` — additional launch scenarios
 - `CONFIG_YAML_REFERENCE.md` — YAML schema reference
 - `PAPER.md` — formal whitepaper

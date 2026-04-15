@@ -18,7 +18,7 @@ See [QUICKSTART.md](QUICKSTART.md) for the full setup flow.
 
 ## Example Scenarios
 
-- `hormuz.yaml` — bilateral farmer-miner market with world shocks
+- `scenarios/hormuz.yaml` — bilateral farmer-miner market with world shocks
 - `scenarios/info-diffusion.yaml` — misinformation diffusion through a trust network
 - `scenarios/financial-market.yaml` — multi-trader market microstructure scenario
 - `scenarios/resource-scarcity.yaml` — cooperation versus conflict under water and food stress
