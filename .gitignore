@@ -33,3 +33,6 @@ Thumbs.db
 
 justonefile.py
 *.ps1
+
+# MkDocs build output
+site/

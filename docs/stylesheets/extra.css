@@ -1,0 +1,351 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   Doxa Documentation — Custom Stylesheet
+   Theme  : Material for MkDocs (slate / default)
+   Palette: Cobalt Blue #3d5afe  ×  Electric Cyan #00e5ff
+───────────────────────────────────────────────────────────────────────── */
+
+/* ── 1. Custom palette variables ──────────────────────────────────────── */
+:root {
+  --doxa-blue:         #3d5afe;
+  --doxa-blue-dim:     #1a237e;
+  --doxa-cyan:         #00e5ff;
+  --doxa-surface:      rgba(61, 90, 254, 0.04);
+  --doxa-border:       rgba(61, 90, 254, 0.15);
+  --doxa-glow:         rgba(61, 90, 254, 0.22);
+  --doxa-hero-bg:      linear-gradient(135deg, #0e142b 0%, #1a2555 55%, #0e1f4a 100%);
+}
+
+/* Material colour overrides — light scheme */
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color:              #1a237e;
+  --md-primary-fg-color--light:       #3d5afe;
+  --md-primary-fg-color--dark:        #0d1b3e;
+  --md-accent-fg-color:               #0277bd;
+  --md-accent-fg-color--transparent:  rgba(2, 119, 189, 0.10);
+}
+
+/* Material colour overrides — dark scheme */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color:              #3d5afe;
+  --md-primary-fg-color--light:       #536dfe;
+  --md-primary-fg-color--dark:        #1a237e;
+  --md-accent-fg-color:               #00e5ff;
+  --md-accent-fg-color--transparent:  rgba(0, 229, 255, 0.10);
+  --md-default-bg-color:              #0d1117;
+  --md-default-bg-color--light:       #161b22;
+  --md-default-bg-color--lighter:     #21262d;
+  --md-code-bg-color:                 #0d1420;
+  --md-typeset-color:                 #c9d1d9;
+  --md-typeset-a-color:               #58a6ff;
+  --doxa-surface:                     rgba(61, 90, 254, 0.08);
+  --doxa-border:                      rgba(61, 90, 254, 0.20);
+}
+
+
+/* ── 2. Hero section ──────────────────────────────────────────────────── */
+.hero {
+  background: var(--doxa-hero-bg);
+  padding: 6rem 2rem 5rem;
+  border-radius: 14px;
+  margin: -0.4rem 0 3rem;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(61, 90, 254, 0.25);
+}
+
+/* Grid-mesh overlay */
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(61, 90, 254, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(61, 90, 254, 0.055) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+}
+
+/* Radial-glow accents */
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 60% 50% at 15% 65%, rgba(0, 229, 255, 0.07) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 60% at 82% 28%, rgba(61, 90, 254, 0.11) 0%, transparent 65%);
+  pointer-events: none;
+}
+
+.hero-inner { position: relative; z-index: 1; }
+
+.hero-title {
+  font-size:   clamp(2.8rem, 6vw, 4.5rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height:    1;
+  margin:         0 0 0.85rem;
+  background:     linear-gradient(145deg, #ffffff 15%, #a5c8ff 55%, #00e5ff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero-subtitle {
+  font-size:   clamp(1rem, 2vw, 1.2rem);
+  color:       rgba(255, 255, 255, 0.62);
+  max-width:   580px;
+  margin:      0 auto 2.5rem;
+  line-height: 1.65;
+  font-weight: 400;
+}
+
+.hero-actions {
+  display:         flex;
+  gap:             0.75rem;
+  justify-content: center;
+  flex-wrap:       wrap;
+}
+
+.hero-actions .md-button {
+  padding:        0.65rem 1.8rem;
+  border-radius:  6px;
+  font-weight:    600;
+  font-size:      0.92rem;
+  letter-spacing: 0.025em;
+  transition:     transform 0.15s ease, box-shadow 0.15s ease;
+  text-decoration: none !important;
+}
+
+.hero-actions .md-button--primary {
+  background:   var(--doxa-blue);
+  border-color: var(--doxa-blue);
+  color:        #fff !important;
+  box-shadow:   0 4px 18px rgba(61, 90, 254, 0.45);
+}
+.hero-actions .md-button--primary:hover {
+  box-shadow: 0 7px 28px rgba(61, 90, 254, 0.60);
+  transform:  translateY(-2px);
+}
+
+.hero-actions .md-button:not(.md-button--primary) {
+  border:     1.5px solid rgba(255, 255, 255, 0.28);
+  color:      rgba(255, 255, 255, 0.80) !important;
+  background: transparent;
+}
+.hero-actions .md-button:not(.md-button--primary):hover {
+  border-color: rgba(0, 229, 255, 0.55);
+  color:        #fff !important;
+  background:   rgba(0, 229, 255, 0.06);
+  transform:    translateY(-2px);
+}
+
+
+/* ── 3. Feature cards ─────────────────────────────────────────────────── */
+/* Polishes Material's built-in .grid.cards */
+.md-typeset .grid.cards > :is(ul, ol) > li {
+  background:    var(--doxa-surface);
+  border:        1px solid var(--doxa-border);
+  border-radius: 10px;
+  transition:    transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.md-typeset .grid.cards > :is(ul, ol) > li:hover {
+  transform:    translateY(-4px);
+  box-shadow:   0 10px 40px var(--doxa-glow);
+  border-color: rgba(61, 90, 254, 0.40);
+}
+
+
+/* ── 4. HTTP method badges ────────────────────────────────────────────── */
+.http-get, .http-post, .http-put, .http-delete, .http-ws {
+  display:        inline-block;
+  padding:        0.18em 0.55em 0.15em;
+  border-radius:  4px;
+  font-size:      0.70em;
+  font-weight:    700;
+  letter-spacing: 0.07em;
+  font-family:    var(--md-code-font, "JetBrains Mono", monospace);
+  vertical-align: middle;
+  margin-right:   0.35em;
+  line-height:    1.5;
+  white-space:    nowrap;
+}
+.http-get    { background: rgba(  0,200,117,0.12); color: #3fb950; border: 1px solid rgba(  0,200,117,0.28); }
+.http-post   { background: rgba( 88,166,255,0.12); color: #58a6ff; border: 1px solid rgba( 88,166,255,0.28); }
+.http-put    { background: rgba(255,167, 38,0.12); color: #e3b341; border: 1px solid rgba(255,167, 38,0.28); }
+.http-delete { background: rgba(248, 81, 73,0.12); color: #f85149; border: 1px solid rgba(248, 81, 73,0.28); }
+.http-ws     { background: rgba(188,140,255,0.12); color: #bc8cff; border: 1px solid rgba(188,140,255,0.28); }
+
+
+/* ── 5. Tables ────────────────────────────────────────────────────────── */
+.md-typeset table:not([class]) {
+  border-radius: 8px;
+  overflow:      hidden;
+  border:        1px solid var(--doxa-border);
+  font-size:     0.84em;
+  width:         100%;
+}
+.md-typeset table:not([class]) th {
+  background:     rgba(61, 90, 254, 0.10);
+  font-size:      0.74em;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight:    700;
+  white-space:    nowrap;
+  border-bottom:  2px solid var(--doxa-border);
+  padding:        0.6em 0.8em;
+}
+.md-typeset table:not([class]) td {
+  border-bottom: 1px solid rgba(61, 90, 254, 0.06);
+  padding:       0.5em 0.8em;
+  vertical-align: top;
+}
+.md-typeset table:not([class]) tr:nth-child(even) td {
+  background: rgba(61, 90, 254, 0.025);
+}
+.md-typeset table:not([class]) tr:hover td {
+  background: rgba(61, 90, 254, 0.05);
+}
+
+
+/* ── 6. Code blocks ───────────────────────────────────────────────────── */
+.md-typeset pre > code {
+  border-left: 3px solid var(--doxa-cyan);
+}
+
+[data-md-color-scheme="slate"] .md-typeset :not(pre) > code {
+  background-color: rgba(61, 90, 254, 0.12);
+  color:            #a5c8ff;
+  border-radius:    3px;
+  padding:          0.1em 0.35em;
+}
+
+/* Copy button polish */
+.md-clipboard {
+  color: rgba(255,255,255,0.35);
+  transition: color 0.15s;
+}
+.md-clipboard:hover { color: var(--doxa-cyan); }
+
+
+/* ── 7. Mermaid diagram wrapper ───────────────────────────────────────── */
+.md-typeset .mermaid {
+  background:   rgba(13, 27, 62, 0.50);
+  border:       1px solid var(--doxa-border);
+  border-radius: 10px;
+  padding:      2rem 1.5rem;
+  margin:       1.5rem 0;
+  overflow-x:   auto;
+  text-align:   center;
+}
+
+
+/* ── 8. Navigation tabs ───────────────────────────────────────────────── */
+.md-tabs__link--active,
+.md-tabs__link:focus,
+.md-tabs__link:hover {
+  color: var(--md-accent-fg-color) !important;
+}
+
+.md-tabs__indicator {
+  background-color: var(--md-accent-fg-color);
+}
+
+.md-nav__link--active {
+  font-weight: 600;
+}
+
+
+/* ── 9. Header ────────────────────────────────────────────────────────── */
+[data-md-color-scheme="slate"] .md-header {
+  background: linear-gradient(90deg, #0d1117 0%, #0d1b3e 100%);
+  box-shadow: 0 1px 0 rgba(61, 90, 254, 0.20);
+}
+
+[data-md-color-scheme="slate"] .md-header__title {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+
+/* ── 10. Admonitions ──────────────────────────────────────────────────── */
+/* Note: tweak built-in type colours */
+[data-md-color-scheme="slate"] .md-typeset .admonition,
+[data-md-color-scheme="slate"] .md-typeset details {
+  border-color: rgba(61, 90, 254, 0.30);
+}
+
+/* Custom "scenario" admonition type */
+:root {
+  --md-admonition-icon--scenario:
+    url("data:image/svg+xml;charset=utf-8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5'/></svg>");
+}
+.md-typeset .admonition.scenario,
+.md-typeset details.scenario { border-color: var(--doxa-cyan); }
+.md-typeset .admonition.scenario > .admonition-title,
+.md-typeset details.scenario > summary {
+  background: rgba(0, 229, 255, 0.08);
+}
+.md-typeset .admonition.scenario > .admonition-title::before,
+.md-typeset details.scenario > summary::before {
+  background-color: var(--doxa-cyan);
+  -webkit-mask-image: var(--md-admonition-icon--scenario);
+  mask-image: var(--md-admonition-icon--scenario);
+}
+
+
+/* ── 11. Footer ───────────────────────────────────────────────────────── */
+[data-md-color-scheme="slate"] .md-footer {
+  background:  #090e1a;
+  border-top:  1px solid rgba(61, 90, 254, 0.15);
+}
+[data-md-color-scheme="slate"] .md-footer-meta {
+  background: #090e1a;
+}
+
+
+/* ── 12. Scrollbar ────────────────────────────────────────────────────── */
+::-webkit-scrollbar          { width: 5px; height: 5px; }
+::-webkit-scrollbar-track    { background: transparent; }
+::-webkit-scrollbar-thumb    { background: rgba(61, 90, 254, 0.35); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 229, 255, 0.50); }
+
+
+/* ── 13. Scenario category tags ───────────────────────────────────────── */
+.tag {
+  display:        inline-block;
+  font-size:      0.72em;
+  font-weight:    600;
+  padding:        0.2em 0.65em;
+  border-radius:  4px;
+  font-family:    var(--md-code-font, monospace);
+  letter-spacing: 0.04em;
+  margin:         0.15em 0.2em 0.15em 0;
+  vertical-align: middle;
+}
+.tag-economic  { background: rgba(  0,200,117,0.12); color: #3fb950; border: 1px solid rgba(  0,200,117,0.25); }
+.tag-social    { background: rgba(255,167, 38,0.12); color: #e3b341; border: 1px solid rgba(255,167, 38,0.25); }
+.tag-market    { background: rgba( 88,166,255,0.12); color: #58a6ff; border: 1px solid rgba( 88,166,255,0.25); }
+.tag-conflict  { background: rgba(248, 81, 73,0.12); color: #f85149; border: 1px solid rgba(248, 81, 73,0.25); }
+.tag-policy    { background: rgba(188,140,255,0.12); color: #bc8cff; border: 1px solid rgba(188,140,255,0.25); }
+.tag-diplomacy { background: rgba(  0,229,255,0.12); color: #00e5ff; border: 1px solid rgba(  0,229,255,0.25); }
+
+
+/* ── 14. API endpoint row grouping ────────────────────────────────────── */
+.api-group {
+  margin: 2rem 0 0.5rem;
+  font-size:      0.7em;
+  font-weight:    700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color:          var(--md-default-fg-color--light);
+  border-bottom:  1px solid var(--doxa-border);
+  padding-bottom: 0.3rem;
+}
+
+
+/* ── 15. Math blocks ──────────────────────────────────────────────────── */
+.arithmatex {
+  overflow-x: auto;
+  padding:    0.5rem 0;
+}
