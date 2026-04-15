@@ -3,11 +3,11 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "doxa"
+name = "doxa-ai"
 version = "0.1.0"
 description = "Doxa backend engine and CLI"
 authors = [
-    { name = "Tuo Nome", email = "tuo@email.com" }
+    { name = "VincenzoManto" }
 ]
 readme = "README.md"
 requires-python = ">=3.8"
