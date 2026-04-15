@@ -1,3 +1,4 @@
+![logo.png](logo.png)
 
 # Doxa: A Multi-Agent Simulation Platform for Economic and Social Dynamics
 
