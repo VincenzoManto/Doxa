@@ -50,7 +50,7 @@ export default function App() {
   const [agentFilter, setAgentFilter] = useState('');
   const [yamlText, setYamlText] = useState('');
   const [yamlSource, setYamlSource] = useState('runtime');
-  const [yamlPath, setYamlPath] = useState('hormuz.yaml');
+  const [yamlPath, setYamlPath] = useState('scenarios/hormuz.yaml');
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
