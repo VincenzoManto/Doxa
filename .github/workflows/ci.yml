@@ -5,7 +5,11 @@ on:
     branches:
       - main
       - master
+    paths:
+      - "**.py"
   pull_request:
+    paths:
+      - "**.py"
 
 jobs:
   server-tests:
