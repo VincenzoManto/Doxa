@@ -90,6 +90,13 @@ docker compose up --build   # (2) backend :5000 · frontend :3000
 
 See [Quick Start](quickstart.md) for local dev, Ollama-only, and bare-metal instructions.
 
+### Additional: Pip installation & CLI
+
+```bash
+pip install doxa-ai
+doxa run --help
+```
+
 ---
 
 ## Example Scenarios
