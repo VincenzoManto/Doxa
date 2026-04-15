@@ -4,7 +4,8 @@ autogen-ext[chromadb]>=0.4.8
 chromadb>=0.5.5
 fastapi>=0.115.0
 httpx>=0.27.0
-pyautogen>=0.4.0
+autogen-agentchat~=0.2
+autogen
 python-dotenv>=1.0.1
 PyYAML>=6.0.2
 sentence-transformers>=3.0.1
