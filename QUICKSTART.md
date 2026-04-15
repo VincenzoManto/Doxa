@@ -57,6 +57,17 @@ npm run dev
 
 The Vite dev server proxies `/api` and `/ws` to `http://localhost:5000`.
 
+## Option C: Pip with backend CLI only
+
+The Doxa backend is available as a Python package on PyPI: [doxa-ai](https://pypi.org/project/doxa-ai/)
+
+Install and use the CLI:
+
+```bash
+pip install doxa-ai
+doxa run --help
+```
+
 ## Run Tests
 
 ```bash

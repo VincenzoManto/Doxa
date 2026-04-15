@@ -7,8 +7,8 @@
 Doxa is a YAML-driven multi-agent simulation platform for economic and social systems. It combines LLM-backed agents, market microstructure, relation graphs, and world events behind a FastAPI API and a React client.
 
 [![CI](https://github.com/VincenzoManto/Doxa/actions/workflows/ci.yml/badge.svg)](https://github.com/VincenzoManto/Doxa/actions/workflows/ci.yml)
-
 [![Deploy Docs](https://github.com/VincenzoManto/Doxa/actions/workflows/docs.yml/badge.svg)](https://github.com/VincenzoManto/Doxa/actions/workflows/docs.yml)
+[![PyPI](https://img.shields.io/pypi/v/doxa-ai)](https://pypi.org/project/doxa-ai/)
 
 ## Quick Start
 
@@ -20,6 +20,12 @@ Doxa is a YAML-driven multi-agent simulation platform for economic and social sy
 4. Open `http://localhost:3000`
 
 See [QUICKSTART.md](QUICKSTART.md) for the full setup flow.
+
+### Possible installation flows:
+
+- Docker (backend + frontend) (`docker compose up --build`)
+- Local dev (backend + frontend) 
+- Backend only (via PyPI package and CLI) (`pip install doxa-ai`)
 
 ## Example Scenarios
 
