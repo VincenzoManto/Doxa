@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
 import { CHART_EVENT_COLORS, findTimelineEventIndex, pointLabel, toAgentChartSeries, toTotalBarSeries } from '../utils';
 import type { ChartMode, LiveEvent, TimelinePoint } from '../types';

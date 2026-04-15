@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Bot, Send } from 'lucide-react';
 import { chatbotQuery } from '../api';
 import type { ChatMessage } from '../types';

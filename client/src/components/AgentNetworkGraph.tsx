@@ -1,6 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
-import { findTimelineEventIndex, pointLabel } from '../utils';
 import type { AgentSummary, LiveEvent } from '../types';
 
 export function AgentNetworkGraph({ agents, events }: { agents: AgentSummary[]; events: LiveEvent[] }) {
