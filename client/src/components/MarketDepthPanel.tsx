@@ -1,4 +1,3 @@
-import React from 'react';
 import { formatNumber } from '../utils';
 import type { MarketOrderBook, MarketSummary } from '../types';
 export function MarketDepthPanel({ markets, selectedMarket, onSelectMarket, orderBook }: { markets: Record<string, MarketSummary>; selectedMarket: string; onSelectMarket: (resource: string) => void; orderBook: MarketOrderBook | null }) {

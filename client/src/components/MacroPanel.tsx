@@ -1,4 +1,3 @@
-import React from 'react';
 import { formatNumber } from '../utils';
 import type { MacroMetrics } from '../types';
 

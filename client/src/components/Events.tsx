@@ -1,5 +1,4 @@
-import React, { useEffect, useRef } from 'react';
-import { formatNumber, formatTimestamp, findTimelineEventIndex, pointLabel } from '../utils';
+import { formatNumber, formatTimestamp } from '../utils';
 import type { LiveEvent } from '../types';
 export function EventBody({ event }: { event: LiveEvent }) {
   if (event.type === 'trade') {

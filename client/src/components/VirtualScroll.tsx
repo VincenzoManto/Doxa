@@ -2,7 +2,7 @@
 // Generic VirtualScroll — renders only the rows in the visible viewport.
 // itemHeight must be fixed and include any gap/margin between items.
 // ---------------------------------------------------------------------------
-export function VirtualScroll<T>({ items, itemHeight, visibleHeight, renderItem, className, autoScrollBottom = false }: { items: T[]; itemHeight: number; visibleHeight: number; renderItem: (item: T, index: number) => React.ReactNode; className?: string; autoScrollBottom?: boolean }) {
+export function VirtualScroll<T>({ items, visibleHeight, renderItem, className }: { items: T[]; itemHeight: number; visibleHeight: number; renderItem: (item: T, index: number) => React.ReactNode; className?: string; autoScrollBottom?: boolean }) {
  
 
   return (
