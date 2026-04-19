@@ -223,6 +223,14 @@ class DoxaEngine:
             actor_base_ids.add(actor["id"])
             if actor.get("trading_mode", "otc") not in {"otc", "lob", "both"}:
                 raise ValueError(f"Actor '{actor['id']}' has invalid trading_mode '{actor.get('trading_mode')}'.")
+            temperature = actor.get("temperature")
+            if temperature is not None:
+                if not isinstance(temperature, (int, float)) or not (0 <= float(temperature) <= 2):
+                    raise ValueError(f"Actor '{actor['id']}'.temperature must be numeric and in [0, 2].")
+            irrationality = actor.get("irrationality")
+            if irrationality is not None:
+                if not isinstance(irrationality, (int, float)) or not (0 <= float(irrationality) <= 1):
+                    raise ValueError(f"Actor '{actor['id']}'.irrationality must be numeric and in [0, 1].")
             econ_cfg = actor.get("economics")
             if econ_cfg is not None:
                 if not isinstance(econ_cfg, dict):

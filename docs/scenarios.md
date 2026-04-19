@@ -36,6 +36,9 @@ World shocks stress-test market resilience and trust dynamics:
 Six traders — two trend-followers, two contrarians, two arbitrageurs — compete across two
 correlated LOB markets.
 
+This scenario is also a good baseline for tuning agent rationality: lower `irrationality`
+keeps an actor more disciplined, while higher values make quotes and choices noisier.
+
 **Good for:** price discovery dynamics, spread formation, emergent order-flow imbalance,
 cross-market arbitrage.
 

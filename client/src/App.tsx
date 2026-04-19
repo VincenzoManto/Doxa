@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
+import React, { startTransition, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import { Activity, Archive, Download, FileCode2, Pause, Play, RotateCcw, ShieldAlert, SkipForward, Upload, X } from 'lucide-react';
 import { connectEvents, downloadExportZip, getAgent, getAgentMemory, getAgentTimeline, getAgents, getConfig, getEvents, getGlobalTimeline, getMacroMetrics, getMarketOrderBook, getMarkets, getStatus, godmode, loadConfigPath, pauseSimulation, resetSimulation, restartSimulation, resumeSimulation, runSimulation, stepAgent, updateConfig, validateConfig } from './api';
@@ -54,11 +54,13 @@ export default function App() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [setupMessage, setSetupMessage] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
   const [gmAction, setGmAction] = useState('inject_resource');
   const [gmParams, setGmParams] = useState('{"agent":"player_1","resource":"gold","amount":5}');
   const reconnectTimerRef = useRef<number | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
+  const yamlFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Event types that warrant a REST re-fetch of timeline/status after they arrive
   const REFRESH_ON_TYPES = new Set(['step', 'kill', 'epoch', 'victory', 'manual_step', 'reset', 'config', 'godmode', 'market_fill', 'world_event']);
@@ -309,8 +311,15 @@ export default function App() {
         return;
       }
 
+      // Setup/loading phase event (tool registration, agent init, scenario load)
+      if (normalizedEvent.type === 'setup') {
+        setSetupMessage((normalizedEvent as LiveEvent & { text?: string }).text ?? 'Configuring…');
+        return;
+      }
+
       // Status change (run/pause/resume/restart/reset confirmation from server)
       if (normalizedEvent.type === 'status' || normalizedEvent.type === 'reset') {
+        setSetupMessage(null);
         const embedded = normalizedEvent as LiveEvent & SimulationStatus;
         if (embedded.state) {
           setStatus((current) => (sameStatus(current, embedded) ? current : embedded));
@@ -320,6 +329,11 @@ export default function App() {
           setTimeline([]);
           setAgents([]);
         }
+      }
+
+      // Clear setup banner on config-applied events
+      if (normalizedEvent.type === 'config') {
+        setSetupMessage(null);
       }
 
       // Push to event ring buffer (newest first, capped)
@@ -445,6 +459,23 @@ export default function App() {
     });
   }
 
+  function handleYamlFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result;
+      if (typeof text === 'string') {
+        setYamlText(text);
+        setYamlSource(`file: ${file.name}`);
+        setFeedback(`Loaded "${file.name}" — review and click Save runtime YAML to apply.`);
+      }
+    };
+    reader.readAsText(file);
+    // Reset so the same file can be re-selected
+    event.target.value = '';
+  }
+
   async function handleGodmode() {
     try {
       setBusyAction('godmode');
@@ -463,44 +494,62 @@ export default function App() {
   const controlButtons = [
     {
       label: 'Run',
+      hint: 'Start simulation',
       icon: Play,
+      danger: false,
       enabled: status?.available_actions.can_run ?? false,
       action: () => runAction('run', runSimulation),
     },
     {
       label: 'Pause',
+      hint: 'Pause between steps',
       icon: Pause,
+      danger: false,
       enabled: status?.available_actions.can_pause ?? false,
       action: () => runAction('pause', pauseSimulation),
     },
     {
       label: 'Resume',
+      hint: 'Continue from pause',
       icon: Play,
+      danger: false,
       enabled: status?.available_actions.can_resume ?? false,
       action: () => runAction('resume', resumeSimulation),
     },
     {
+      label: 'Step',
+      hint: 'Advance one step',
+      icon: SkipForward,
+      danger: false,
+      enabled: status?.available_actions.can_step ?? false,
+      action: () => runAction('step', () => stepAgent(selectedAgent ?? undefined)),
+    },
+    {
       label: 'Restart',
+      hint: 'Stop & rerun (same config)',
       icon: RotateCcw,
+      danger: false,
       enabled: status?.available_actions.can_restart ?? false,
       action: () => runAction('restart', restartSimulation),
     },
     {
-      label: 'Reset',
+      label: 'Full Reset',
+      hint: 'Stop, clear all data & return to idle',
       icon: Archive,
+      danger: true,
       enabled: status?.available_actions.can_reset ?? false,
       action: () => runAction('reset', resetSimulation),
-    },
-    {
-      label: 'Step',
-      icon: SkipForward,
-      enabled: status?.available_actions.can_step ?? false,
-      action: () => runAction('step', () => stepAgent(selectedAgent ?? undefined)),
     },
   ];
 
   return (
     <div className="app-shell">
+      {setupMessage && (
+        <div className="setup-overlay">
+          <div className="setup-spinner" />
+          <span>{setupMessage}</span>
+        </div>
+      )}
       <aside className="sidebar">
         <div className="brand-block">
           <p className="eyebrow">Doxa orchestration</p>
@@ -544,8 +593,8 @@ export default function App() {
             </div>
           </div>
           <div className="button-grid">
-            {controlButtons.map(({ label, icon: Icon, enabled, action }) => (
-              <button key={label} type="button" className="control-button" disabled={!enabled || busyAction !== null} onClick={() => void action()}>
+            {controlButtons.map(({ label, hint, icon: Icon, enabled, danger, action }) => (
+              <button key={label} type="button" title={hint} className={`control-button${danger ? ' control-button-danger' : ''}`} disabled={!enabled || busyAction !== null} onClick={() => void action()}>
                 <Icon size={15} />
                 <span>{label}</span>
               </button>
@@ -678,24 +727,8 @@ export default function App() {
           />
         </section> */}
 
-        <section className="panel chart-panel network-panel top-grid">
-          <div className="top-stack">
-            <div className="panel-header">
-              <div>
-                <p className="eyebrow">Interaction graph</p>
-                <h3>Agent network</h3>
-              </div>
-              <p className="panel-subtitle">Edges aggregate trades, communications and actions in realtime.</p>
-            </div>
-            <AgentNetworkGraph agents={agents} events={events} />
-          </div>
-          <div></div>
-          <MarketDepthPanel markets={markets} selectedMarket={selectedMarket} onSelectMarket={setSelectedMarket} orderBook={orderBook} />
-          <MacroPanel macro={macro} />
-        </section>
-
-        <div className="bottom-grid">
-          <section className="panel log-panel">
+<div className="top-grid">
+         <section className="panel log-panel">
             <div className="panel-header">
               <div>
                 <p className="eyebrow">Realtime stream</p>
@@ -724,18 +757,12 @@ export default function App() {
               <p className="panel-subtitle">Active source: {yamlSource}</p>
               <textarea className="yaml-editor" value={yamlText} onChange={(event) => setYamlText(event.target.value)} spellCheck={false} />
               <div className="inline-actions">
-                <button type="button" className="secondary-button" disabled={busyAction !== null} onClick={() => void handleValidateYaml()}>
-                  Validate
+                <button type="button" className="primary-button" title="Import a local .yaml / .yml file into the editor" onClick={() => yamlFileInputRef.current?.click()}>
+                  Import file
                 </button>
+                <input ref={yamlFileInputRef} type="file" accept=".yaml,.yml" style={{ display: 'none' }} onChange={handleYamlFileUpload} />
                 <button type="button" className="primary-button" disabled={busyAction !== null} onClick={() => void handleSaveYaml()}>
-                  Save runtime YAML
-                </button>
-              </div>
-              <div className="path-row">
-                <input value={yamlPath} onChange={(event) => setYamlPath(event.target.value)} placeholder="Load from file path" />
-                <button type="button" className="secondary-button" disabled={busyAction !== null} onClick={() => void handleLoadPath()}>
-                  <Upload size={14} />
-                  Load path
+                  Save
                 </button>
               </div>
             </section>
@@ -748,6 +775,26 @@ export default function App() {
               </section>
             )}
           </div>
+          </div>
+
+        <section className="panel chart-panel network-panel top-grid">
+          <div className="top-stack">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">Interaction graph</p>
+                <h3>Agent network</h3>
+              </div>
+              <p className="panel-subtitle">Edges aggregate trades, communications and actions in realtime.</p>
+            </div>
+            <AgentNetworkGraph agents={agents} events={events} />
+          </div>
+          <div></div>
+          <MarketDepthPanel markets={markets} selectedMarket={selectedMarket} onSelectMarket={setSelectedMarket} orderBook={orderBook} />
+          <MacroPanel macro={macro} />
+        </section>
+
+        <div className="bottom-grid">
+         
           <ChatbotPanel />
           <section className="panel compact-panel">
             <div className="panel-header">

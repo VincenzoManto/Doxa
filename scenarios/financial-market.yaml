@@ -77,6 +77,7 @@ actors:
   - id: trend_a
     provider: google
     model_name: gemini-2.5-pro
+    irrationality: 0.12
     persona: |
       Trend follower. Chase momentum in the strongest market and exit losing positions late.
     trading_mode: both
@@ -88,6 +89,7 @@ actors:
   - id: trend_b
     provider: google
     model_name: gemini-2.5-pro
+    irrationality: 0.16
     persona: |
       Trend follower. Reinforce prevailing market direction but avoid total insolvency.
     trading_mode: both
@@ -99,6 +101,7 @@ actors:
   - id: contrarian_a
     provider: google
     model_name: gemini-2.5-pro
+    irrationality: 0.32
     persona: |
       Contrarian trader. Fade overreactions and buy weakness when panic rises.
     trading_mode: both
@@ -110,6 +113,7 @@ actors:
   - id: contrarian_b
     provider: google
     model_name: gemini-2.5-pro
+    irrationality: 0.36
     persona: |
       Contrarian trader. Exploit stretched order books and sell euphoria.
     trading_mode: both
@@ -121,6 +125,7 @@ actors:
   - id: arb_a
     provider: google
     model_name: gemini-2.5-pro
+    irrationality: 0.22
     persona: |
       Arbitrageur. Provide liquidity, exploit mispricings, and keep inventories balanced.
     trading_mode: both
@@ -132,6 +137,7 @@ actors:
   - id: arb_b
     provider: google
     model_name: gemini-2.5-pro
+    irrationality: 0.24
     persona: |
       Arbitrageur. Exploit temporary gaps between perceived value and market price.
     trading_mode: both
