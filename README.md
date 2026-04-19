@@ -9,6 +9,7 @@ Doxa is a YAML-driven multi-agent simulation platform for economic and social sy
 [![CI](https://github.com/VincenzoManto/Doxa/actions/workflows/ci.yml/badge.svg)](https://github.com/VincenzoManto/Doxa/actions/workflows/ci.yml)
 [![Deploy Docs](https://github.com/VincenzoManto/Doxa/actions/workflows/docs.yml/badge.svg)](https://github.com/VincenzoManto/Doxa/actions/workflows/docs.yml)
 [![PyPI](https://img.shields.io/pypi/v/doxa-ai)](https://pypi.org/project/doxa-ai/)
+[![Colab](https://img.shields.io/badge/Open%20in-Colab-blue?logo=googlecolab)](https://colab.research.google.com/github/VincenzoManto/Doxa/blob/main/notebooks/doxa.ipynb)
 
 ## Quick Start
 
@@ -19,7 +20,8 @@ Doxa is a YAML-driven multi-agent simulation platform for economic and social sy
 3. Start with Docker: `docker compose up --build`
 4. Open `http://localhost:3000`
 
-Do you want to just run Doxa without installation? Here our [Colab](https://colab.research.google.com/github/VincenzoManto/Doxa/blob/main/notebooks/doxa.ipynb) is the fastest way to get started.
+
+Do you want to just run Doxa without installation? Here our [![Open in Colab](https://img.shields.io/badge/Colab-black?logo=googlecolab)](https://colab.research.google.com/github/VincenzoManto/Doxa/blob/main/notebooks/doxa.ipynb) is the fastest way to get started.
 
 See [QUICKSTART.md](QUICKSTART.md) for the full setup flow.
 
