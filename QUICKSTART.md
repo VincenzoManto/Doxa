@@ -1,43 +1,21 @@
+
 # Quick Start
 
-This guide gets Doxa running locally or with Docker in a few minutes.
-
-## Prerequisites
-
-- Python 3.10+
-- Node.js 20+
-- Docker Desktop (optional, recommended for first run)
-- At least one supported LLM provider key if your scenario uses hosted models
-
-## Environment Setup
-
-1. Copy `.env.example` to `.env`.
-2. Populate the variables you need:
-   - `OPENAI_API_KEY` for OpenAI models
-   - `GOOGLE_API_KEY` for Gemini models
-   - `GROK_API_KEY` for Grok models
-3. Leave unused providers blank.
-
-## Option A: Docker
-
-Run everything with containers:
+## Install
 
 ```bash
-docker compose up --build
+pip install doxa-ai
 ```
 
-Services:
+## Run a Scenario
 
-- Frontend: `http://localhost:3000`
-- Backend API: `http://localhost:5000`
-
-To stop:
+You can run any scenario from the provided examples. For instance:
 
 ```bash
-docker compose down
+doxa run scenarios/hormuz.yaml
 ```
 
-## Option B: Local Development
+Replace `hormuz.yaml` with any other scenario file from the `scenarios/` folder as needed.
 
 ### Backend
 
