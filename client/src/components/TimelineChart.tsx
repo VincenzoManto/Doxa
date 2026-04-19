@@ -91,7 +91,7 @@ export function TimelineChart({ title, subtitle, points, metrics, mode, selector
       return;
     }
 
-    const existingSeries = ((chart.getOption()?.series as Array<Record<string, unknown>> | undefined) ?? []).filter((series) => typeof series.id === 'string' && !String(series.id).startsWith('event:'));
+    const existingSeries = ((chart.getOption()?.series as Array<Record<string, unknown> | null> | undefined) ?? []).filter((series): series is Record<string, unknown> => series != null && typeof series.id === 'string' && !String(series.id).startsWith('event:'));
     existingSeries.forEach((series) => {
       // Add event markers to existing series data for correct tooltip display
       series.markPoint = {

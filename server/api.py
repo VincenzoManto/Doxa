@@ -97,6 +97,9 @@ class SocketLogger:
         self._emit({"type": "market_fill", "buyer": buyer, "seller": seller,
                     "qty": qty, "resource": resource, "price": price, "currency": currency})
 
+    def print_setup(self, text: str):
+        self._emit({"type": "setup", "text": text})
+
 # Tipi di eventi che richiedono l'emissione di uno snapshot WS
 _SNAPSHOT_TRIGGER_TYPES = {"step", "kill", "victory", "reset", "epoch", "manual_step", "config_updated", "config_loaded", "market_fill", "world_event"}
 
@@ -133,6 +136,7 @@ def publish_event(payload: Dict[str, Any]):
 @app.post("/api/run")
 def run_simulation():
     try:
+        publish_event({"type": "setup", "text": "Registering agent tools and starting simulation…"})
         status = engine.start_run()
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -248,6 +252,7 @@ def validate_config(payload: Dict[str, Any] = Body(...)):
 def update_config(payload: Dict[str, Any] = Body(...)):
     yaml_text = payload.get("yaml_text", "")
     try:
+        publish_event({"type": "setup", "text": "Applying configuration and initialising agents…"})
         config = engine.update_config_text(yaml_text)
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -263,6 +268,7 @@ def load_config(payload: Dict[str, Any] = Body(...)):
     if not path:
         raise HTTPException(status_code=400, detail="Missing path")
     try:
+        publish_event({"type": "setup", "text": f"Loading scenario from {path}…"})
         config = engine.load_config_path(path)
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

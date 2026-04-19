@@ -101,6 +101,26 @@ def _resolve_secret(name: str, default: str = "") -> str:
     """Return the value of secret *name*, checking ``os.environ`` first,
     then the cached ``.env`` file, and finally returning *default*."""
     return os.environ.get(name) or _read_local_env_file().get(name, default)
+
+
+def _resolve_agent_temperature(config: Dict) -> float:
+    """Resolve the effective LLM temperature for an agent config.
+
+    Supported YAML fields:
+    * ``temperature``: direct control in [0, 2]
+    * ``irrationality``: semantic control in [0, 1], mapped to [0.1, 1.3]
+
+    ``temperature`` takes precedence when both are provided.
+    """
+    explicit_temperature = config.get("temperature")
+    if explicit_temperature is not None:
+        return float(explicit_temperature)
+
+    irrationality = config.get("irrationality")
+    if irrationality is not None:
+        return 0.1 + (float(irrationality) * 1.2)
+
+    return 0.1
     
 
 # ==========================================
@@ -132,6 +152,7 @@ class DoxaAgent(autogen.ConversableAgent):
         # Provider/model selection logic
         provider = config.get('provider', 'ollama').lower()
         model = config.get('model', config.get('model_name', 'llama3.1:8b'))
+        temperature = _resolve_agent_temperature(config)
         if provider == 'openai':
             llm_config = {
                 "config_list": [{
@@ -140,7 +161,7 @@ class DoxaAgent(autogen.ConversableAgent):
                     "api_key": config.get('api_key', os.environ.get('OPENAI_API_KEY', '')),
                     "base_url": config.get('base_url', 'https://api.openai.com/v1'),
                 }],
-                "temperature": 0.1,
+                "temperature": temperature,
             }
         elif provider == 'google':
             google_api_key = config.get('api_key') or _resolve_secret('GOOGLE_API_KEY', '')
@@ -152,7 +173,7 @@ class DoxaAgent(autogen.ConversableAgent):
                     "api_key": google_api_key,
                     "base_url": config.get('base_url', 'https://generativelanguage.googleapis.com/v1beta/openai/'),
                 }],
-                "temperature": 0.1,
+                "temperature": temperature,
             }
         
         elif provider == 'grok':
@@ -163,7 +184,7 @@ class DoxaAgent(autogen.ConversableAgent):
                     "api_key": config.get('api_key', os.environ.get('GROK_API_KEY', '')),
                     "base_url": config.get('base_url', 'https://api.grok.x.ai/v1'),
                 }],
-                "temperature": 0.1,
+                "temperature": temperature,
             }
         else:
             llm_config = {
@@ -174,7 +195,7 @@ class DoxaAgent(autogen.ConversableAgent):
                     "api_key": "ollama",
                     "price": [0,0]
                 }],
-                "temperature": 0.1,
+                "temperature": temperature,
             }
         print(llm_config)
 
