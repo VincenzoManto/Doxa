@@ -10,3 +10,10 @@
 ## [0.1.0]
 
 - Initial public pre-launch baseline
+
+## [0.2.0]
+
+- Added market microstructure primitives: limit order books, call auctions, synthetic market makers
+- Added trust and relation graphs with decay dynamics
+- Added world event scheduling and triggering
+- Exposed REST and WebSocket APIs for all simulation primitives
