@@ -1,5 +1,7 @@
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "."]
+include = ["doxa", "doxa.*", "engine", "engine.*"]
+
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -14,7 +16,17 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
-    "click"
+    "click",
+    "attrs>=23.2.0",
+    "autogen-core>=0.4.8",
+    "autogen-ext[chromadb]>=0.4.8",
+    "chromadb>=0.5.5",
+    "httpx>=0.27.0",
+    "autogen-agentchat~=0.2",
+    "ag2[openai]",
+    "autogen",
+    "python-dotenv>=1.0.1",
+    "PyYAML>=6.0.2"
 ]
 
 [project.scripts]
