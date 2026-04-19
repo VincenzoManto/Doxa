@@ -19,6 +19,8 @@ Doxa is a YAML-driven multi-agent simulation platform for economic and social sy
 3. Start with Docker: `docker compose up --build`
 4. Open `http://localhost:3000`
 
+Do you want to just run Doxa without installation? Here our [Colab](https://colab.research.google.com/github/VincenzoManto/Doxa/blob/main/notebooks/doxa.ipynb) is the fastest way to get started.
+
 See [QUICKSTART.md](QUICKSTART.md) for the full setup flow.
 
 ### Possible installation flows:
