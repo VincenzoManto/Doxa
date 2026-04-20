@@ -4,6 +4,9 @@ authors:
 - family-names: "Manto"
   given-names: "Vincenzo"
   orcid: "https://orcid.org/0009-0007-0065-4847"
+- family-names: "Dal Cero"
+  given-names: "Riccardo"
+  orcid: "https://orcid.org/0009-0003-1308-0230"
 title: "Doxa"
 version: 0.2.0
 doi: 10.5281/zenodo.19659522
