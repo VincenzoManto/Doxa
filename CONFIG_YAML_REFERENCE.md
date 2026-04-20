@@ -232,9 +232,10 @@ identical agents.
 |-----|------|----------|---------|-------------|
 | `id` | string | Yes | — | Unique base identifier. Must be unique across all actor entries. Replica IDs are `<id>_1`, `<id>_2`, … |
 | `replicas` | integer | No | `1` | Number of identical agents to create from this definition. |
-| `provider` | string | No | `ollama` | LLM provider: `ollama` \| `openai` \| `google` \| `grok`. |
+| `provider` | string | No | `ollama` | LLM provider: `ollama` \| `claude` \| `openai` \| `google` \| `grok`. |
 | `model_name` (or `model`) | string | No | `llama3.1:8b` | Model name. For Google: `gemini-2.5-pro`, etc. |
-| `api_key` | string | No | `""` | Provider API key. If omitted, the engine looks for `OPENAI_API_KEY` / `GOOGLE_API_KEY` / `GROK_API_KEY` in env vars and then the `.env` file. |
+| `api_key` | string | No | `""` | Provider API key. If omitted, the engine looks for `OPENAI_API_KEY` / `GOOGLE_API_KEY` / `GROK_API_KEY` / `ANTHROPIC_API_KEY` /  in env vars and then the `.env` file. |
+| `OLLAMA_URL` *(env var)* | string | No | `http://localhost:11434` | Base URL for the Ollama server. Set this env var to point agents at a remote or non-default Ollama instance. The `/v1` path is appended automatically. |  
 | `base_url` | string | No | provider default | Custom endpoint URL. Useful for self-hosted models or proxies. |
 | `temperature` | number | No | `0.1` | Direct LLM temperature control in `[0, 2]`. Lower values make the agent more deterministic; higher values make it more exploratory and erratic. |
 | `irrationality` | number | No | unset | High-level behavior knob in `[0, 1]`. Mapped internally to temperature `[0.1, 1.3]`. Use this when you want to express how "irrational" an agent should be without thinking in provider-specific temperature terms. If both are present, `temperature` wins. |

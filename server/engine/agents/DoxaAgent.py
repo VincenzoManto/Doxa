@@ -176,6 +176,16 @@ class DoxaAgent(autogen.ConversableAgent):
                 "temperature": temperature,
             }
         
+        elif provider == 'claude':
+            llm_config = {
+                "config_list":[{
+                    "model": model or "claude-sonnet-4-6",
+                    "api_type": "anthropic",
+                    "api_key": config.get('api_key',
+                    os.environ.get('ANTHROPIC_API_KEY', '')),
+                    }],
+                    "temperature": temperature
+            }
         elif provider == 'grok':
             llm_config = {
                 "config_list": [{
@@ -190,7 +200,7 @@ class DoxaAgent(autogen.ConversableAgent):
             llm_config = {
                 "config_list": [{
                     "model": model,
-                    "base_url": "http://localhost:11434/v1",
+                    "base_url": os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434') + f"/v1",
                     "api_type": "openai",
                     "api_key": "ollama",
                     "price": [0,0]
