@@ -9,6 +9,63 @@ A WebSocket endpoint at `/ws/events` delivers a real-time event stream.
 
 ---
 
+## Security
+
+### API Key Authentication
+
+By default (local / development mode) all endpoints are open.  
+To enable authentication, set the `DOXA_API_KEY` environment variable before starting the server:
+
+```bash
+export DOXA_API_KEY="your-secret-key"
+uvicorn api:app --host 0.0.0.0 --port 5000
+```
+
+Once set, **every** endpoint — both read and write — requires the header:
+
+```
+X-API-Key: your-secret-key
+```
+
+Requests without a valid key receive `401 Unauthorized`.
+
+The WebSocket endpoint also requires the key, either as a header or a query parameter:
+
+```
+# header (preferred)
+X-API-Key: your-secret-key
+
+# query param (use when headers are unavailable, e.g. browser WebSocket)
+ws://localhost:5000/ws/events?api_key=your-secret-key
+```
+
+### Secret Redaction
+
+The endpoints that return configuration data (`/api/config`, `/api/config/validate`, `PUT /api/config`, `POST /api/config/load`) automatically redact fields named `api_key`, `token`, `secret`, or `password` from their responses, replacing the value with `***REDACTED***`.
+
+### CORS
+
+By default, the server allows requests from the following local origins only:
+
+```
+http://localhost:3000   http://127.0.0.1:3000
+http://localhost:4173   http://127.0.0.1:4173
+http://localhost:5000   http://127.0.0.1:5000
+http://localhost:5173   http://127.0.0.1:5173
+```
+
+To allow additional origins (e.g. a deployed frontend), set `DOXA_CORS_ORIGINS` as a comma-separated list:
+
+```bash
+export DOXA_CORS_ORIGINS="https://my-app.example.com,https://admin.example.com"
+```
+
+### Scenario Path Restriction
+
+The `POST /api/config/load` endpoint accepts **only** `.yaml` or `.yml` files located inside the `scenarios/` directory at the repository root. Absolute paths, paths that escape `scenarios/`, and non-YAML extensions are rejected with `400 Bad Request`.
+
+---
+
 ## Simulation Control
 
 | Method | Path | Description |
@@ -30,7 +87,7 @@ A WebSocket endpoint at `/ws/events` delivers a real-time event stream.
 | <span class="http-get">GET</span>   | `/api/config` | Return the active, parsed YAML config. |
 | <span class="http-put">PUT</span>   | `/api/config` | Hot-reload config. Body: `{ "yaml_text": "..." }`. Returns `409` if the simulation is currently running, `400` on parse error. |
 | <span class="http-post">POST</span> | `/api/config/validate` | Validate raw YAML without applying it. Body: `{ "yaml_text": "..." }`. Returns `{ "valid": true }` or `{ "valid": false, "error": "..." }`. |
-| <span class="http-post">POST</span> | `/api/config/load` | Load a scenario from a server-side filesystem path. Body: `{ "path": "/absolute/path/scenario.yaml" }`. Returns `409` if running. |
+| <span class="http-post">POST</span> | `/api/config/load` | Load a scenario from a path relative to the repository root. Body: `{ "path": "scenarios/hormuz.yaml" }`. The path must resolve to a `.yaml`/`.yml` file inside `scenarios/`. Returns `400` for invalid paths, `409` if running. |
 
 ---
 

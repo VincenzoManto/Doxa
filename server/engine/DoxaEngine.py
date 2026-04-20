@@ -519,8 +519,9 @@ class DoxaEngine:
         normalized.setdefault("epoch", self.current_epoch or None)
         normalized.setdefault("step", self.current_step or None)
         normalized.setdefault("state", self.state)
-        self.event_history.append(normalized)
-        self.event_history = self.event_history[-50000:]
+        with self._state_lock:
+            self.event_history.append(normalized)
+            self.event_history = self.event_history[-50000:]
         return normalized
 
     def _compute_totals(self):
@@ -531,6 +532,8 @@ class DoxaEngine:
         return totals
 
     def record_snapshot(self, reason: str, focus_agent: str = None):
+        with self.env._lock:
+            agents_copy = {agent_id: dict(portfolio) for agent_id, portfolio in self.env.portfolios.items()}
         snapshot = {
             "timestamp": time.time(),
             "run_id": self.run_id,
@@ -539,15 +542,17 @@ class DoxaEngine:
             "state": self.state,
             "reason": reason,
             "focus_agent": focus_agent,
-            "totals": self._compute_totals(),
-            "agents": {agent_id: dict(portfolio) for agent_id, portfolio in self.env.portfolios.items()},
+            "totals": {res: sum(p.get(res, 0) for p in agents_copy.values()) for res in {r for p in agents_copy.values() for r in p}},
+            "agents": agents_copy,
         }
-        self.resource_history.append(snapshot)
-        self.resource_history = self.resource_history[-2000:]
+        with self._state_lock:
+            self.resource_history.append(snapshot)
+            self.resource_history = self.resource_history[-2000:]
         return snapshot
 
     def get_global_timeline(self):
-        return self.resource_history
+        with self._state_lock:
+            return list(self.resource_history)
 
     def get_agent_timeline(self, agent_id: str):
         timeline = []
@@ -568,15 +573,16 @@ class DoxaEngine:
         return self.env.get_agent_memory_graph(agent_id, limit)
 
     def get_events(self, limit: int = 500):
-        return self.event_history[-limit:]
+        with self._state_lock:
+            return self.event_history[-limit:]
 
     def get_events_page(self, limit: int = 500, offset: int = 0):
         """Paginazione degli eventi: offset 0 = più recenti."""
-        total = len(self.event_history)
-        # offset 0 restituisce gli ultimi `limit` eventi
-        start = max(0, total - limit - offset)
-        end = max(0, total - offset)
-        return self.event_history[start:end], total
+        with self._state_lock:
+            total = len(self.event_history)
+            start = max(0, total - limit - offset)
+            end = max(0, total - offset)
+            return self.event_history[start:end], total
 
     def make_ws_snapshot(self):
         """Restituisce l'ultimo snapshot come messaggio WS arricchito con stato e agenti."""
@@ -766,14 +772,15 @@ class DoxaEngine:
         Returns:
             ``"SUCCESS: <action> executed."`` or a ``"FAILED: …"`` message.
         """
-        if action == 'inject_resource':
+        with self.env._lock:
+          if action == 'inject_resource':
             agent = params['agent']
             resource_name = params['resource']
             amount = params['amount']
             if agent not in self.env.portfolios:
                 return f"FAILED: Agent {agent} not found."
             self.env.portfolios[agent][resource_name] = self.env.portfolios[agent].get(resource_name, 0) + amount
-        elif action == 'set_constraint':
+          elif action == 'set_constraint':
             agent = params['agent']
             resource_name = params['resource']
             minv = params.get('min')
@@ -786,7 +793,7 @@ class DoxaEngine:
                 self.env.agents[agent].constraints[resource_name]['min'] = minv
             if maxv is not None:
                 self.env.agents[agent].constraints[resource_name]['max'] = maxv
-        elif action == 'set_portfolio':
+          elif action == 'set_portfolio':
             agent = params['agent']
             portfolio = params['portfolio']
             if agent not in self.env.portfolios:

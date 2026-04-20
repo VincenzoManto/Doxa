@@ -197,7 +197,6 @@ class DoxaAgent(autogen.ConversableAgent):
                 }],
                 "temperature": temperature,
             }
-        print(llm_config)
 
         super().__init__(
             name=agent_id,
