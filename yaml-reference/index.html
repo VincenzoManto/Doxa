@@ -2230,7 +2230,7 @@ identical agents.</p>
 <td>string</td>
 <td>No</td>
 <td><code>ollama</code></td>
-<td>LLM provider: <code>ollama</code> | <code>openai</code> | <code>google</code> | <code>grok</code>.</td>
+<td>LLM provider: <code>ollama</code> | <code>openai</code> | <code>google</code> | <code>grok</code> | <code>claude</code>.</td>
 </tr>
 <tr>
 <td><code>model_name</code> (or <code>model</code>)</td>
@@ -2244,14 +2244,14 @@ identical agents.</p>
 <td>string</td>
 <td>No</td>
 <td><code>""</code></td>
-<td>Provider API key. If omitted, the engine looks for <code>OPENAI_API_KEY</code> / <code>GOOGLE_API_KEY</code> / <code>GROK_API_KEY</code> in env vars and then the <code>.env</code> file.</td>
+<td>Provider API key. If omitted, the engine looks for <code>OPENAI_API_KEY</code> / <code>GOOGLE_API_KEY</code> / <code>GROK_API_KEY</code> / <code>CLAUDE_API_KEY</code> / <code>ANTHROPIC_API_KEY</code> in env vars and then the <code>.env</code> file.</td>
 </tr>
 <tr>
 <td><code>base_url</code></td>
 <td>string</td>
 <td>No</td>
 <td>provider default</td>
-<td>Custom endpoint URL. Useful for self-hosted models or proxies.</td>
+<td>Custom endpoint URL. Useful for self-hosted models or proxies. For Ollama you can also use <code>OLLAMA_URL</code>, and for Claude you can use <code>CLAUDE_URL</code>.</td>
 </tr>
 <tr>
 <td><code>temperature</code></td>
