@@ -30,21 +30,9 @@ yarn-error.log*
 # OS
 .DS_Store
 Thumbs.db
-._*
-._*/
-
-# Python egg-info and build artifacts
-*.egg-info/
-build/
-dist/
-*.egg
-
-# pytest cache
-.pytest_cache/
-.cache/
-
-# MkDocs build output
-site/
 
 justonefile.py
 *.ps1
+
+# MkDocs build output
+site/
