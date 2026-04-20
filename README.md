@@ -10,7 +10,7 @@ Doxa is a YAML-driven multi-agent simulation platform for economic and social sy
 [![Deploy Docs](https://github.com/VincenzoManto/Doxa/actions/workflows/docs.yml/badge.svg)](https://github.com/VincenzoManto/Doxa/actions/workflows/docs.yml)
 [![PyPI](https://img.shields.io/pypi/v/doxa-ai)](https://pypi.org/project/doxa-ai/)
 [![Colab](https://img.shields.io/badge/Open%20in-Colab-blue?logo=googlecolab)](https://colab.research.google.com/github/VincenzoManto/Doxa/blob/main/notebooks/doxa.ipynb)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19659522.svg)](https://doi.org/10.5281/zenodo.19659521)
+![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19659522.svg)
 
 ## Quick Start
 
