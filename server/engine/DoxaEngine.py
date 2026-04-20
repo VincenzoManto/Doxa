@@ -49,8 +49,6 @@ Config management
   it checks all constraint blocks, operation dicts, market bounds, event
   definitions, and relation references before any state is mutated.
 """
-import os
-import os
 import yaml
 import json
 import random
@@ -135,19 +133,6 @@ class DoxaEngine:
                 resources.update(operation.get("output", {}).keys())
                 resources.update(operation.get("target_impact", {}).keys())
         return resources
-
-    def _should_start_local_ollama(self, config: dict) -> bool:
-        """Return True when a local Ollama server should be started.
-
-        A local Ollama server is only needed when at least one Ollama actor uses
-        the default endpoint and no global OLLAMA_URL override is present.
-        """
-        if os.environ.get('OLLAMA_URL'):
-            return False
-        for actor in config.get("actors", []):
-            if actor.get("provider", "ollama").lower() == "ollama" and not actor.get("base_url"):
-                return True
-        return False
 
     def _validate_constraint_block(self, block: dict, context: str):
         if not isinstance(block, dict):
@@ -385,7 +370,8 @@ class DoxaEngine:
         self.config_source = {"kind": source_kind, "value": source_value}
         self.env = SimulationEnvironment(self.raw_config, log_verbose=self.log_verbose, rag_limit=self.rag_limit, logger=self.logger)
         self.log = self.env.log
-        if self._should_start_local_ollama(self.raw_config):
+        uses_ollama = any(actor.get("provider", "ollama").lower() == "ollama" for actor in self.raw_config.get("actors", []))
+        if uses_ollama:
             self.startOllama()
 
     def validate_yaml(self, yaml_text: str):

@@ -50,19 +50,14 @@ def get_allowed_origins() -> List[str]:
         "http://127.0.0.1:5173",
     ]
 
-from contextlib import asynccontextmanager
+app = FastAPI()
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    global _main_loop
-    _main_loop = asyncio.get_running_loop()
-    asyncio.create_task(socket_worker())
-    yield
-    # Shutdown (if needed)
-    pass
-
-app = FastAPI(lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_allowed_origins(),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --- Gestore Connessioni WebSocket ---
 class ConnectionManager:
@@ -148,6 +143,12 @@ async def socket_worker():
                     await manager.broadcast(snap)
         except Exception:
             logger.exception("Socket worker failed while processing an event")
+
+@app.on_event("startup")
+async def startup_event():
+    global _main_loop
+    _main_loop = asyncio.get_running_loop()
+    asyncio.create_task(socket_worker())
 
 socket_logger = SocketLogger()
 engine = DoxaEngine(config_yaml, logger=socket_logger)
