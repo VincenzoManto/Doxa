@@ -103,21 +103,6 @@ def _resolve_secret(name: str, default: str = "") -> str:
     return os.environ.get(name) or _read_local_env_file().get(name, default)
 
 
-def _resolve_ollama_base_url(config: Dict) -> str:
-    """Resolve the Ollama endpoint URL from actor config or environment."""
-    return config.get('base_url') or os.environ.get('OLLAMA_URL', 'http://localhost:11434/v1')
-
-
-def _resolve_claude_api_key(config: Dict) -> str:
-    """Resolve the Claude/Anthropic API key from actor config or environment."""
-    return config.get('api_key') or _resolve_secret('CLAUDE_API_KEY', _resolve_secret('ANTHROPIC_API_KEY', ''))
-
-
-def _resolve_claude_base_url(config: Dict) -> str:
-    """Resolve the Claude/Anthropic endpoint URL from actor config or environment."""
-    return config.get('base_url') or os.environ.get('CLAUDE_URL', 'https://api.anthropic.com/v1')
-
-
 def _resolve_agent_temperature(config: Dict) -> float:
     """Resolve the effective LLM temperature for an agent config.
 
@@ -166,12 +151,7 @@ class DoxaAgent(autogen.ConversableAgent):
         self.constraints = {**env.global_rules.get('constraints', {}), **config.get('constraints', {})}
         # Provider/model selection logic
         provider = config.get('provider', 'ollama').lower()
-        model = config.get('model', config.get('model_name'))
-        if model is None:
-            if provider in {'claude', 'anthropic'}:
-                model = 'claude-3.5-std'
-            else:
-                model = 'llama3.1:8b'
+        model = config.get('model', config.get('model_name', 'llama3.1:8b'))
         temperature = _resolve_agent_temperature(config)
         if provider == 'openai':
             llm_config = {
@@ -195,6 +175,7 @@ class DoxaAgent(autogen.ConversableAgent):
                 }],
                 "temperature": temperature,
             }
+        
         elif provider == 'grok':
             llm_config = {
                 "config_list": [{
@@ -205,22 +186,11 @@ class DoxaAgent(autogen.ConversableAgent):
                 }],
                 "temperature": temperature,
             }
-        elif provider in {'claude', 'anthropic'}:
-            claude_api_key = _resolve_claude_api_key(config)
-            llm_config = {
-                "config_list": [{
-                    "model": model,
-                    "api_type": "anthropic",
-                    "api_key": claude_api_key,
-                    "base_url": _resolve_claude_base_url(config),
-                }],
-                "temperature": temperature,
-            }
         else:
             llm_config = {
                 "config_list": [{
                     "model": model,
-                    "base_url": _resolve_ollama_base_url(config),
+                    "base_url": "http://localhost:11434/v1",
                     "api_type": "openai",
                     "api_key": "ollama",
                     "price": [0,0]
