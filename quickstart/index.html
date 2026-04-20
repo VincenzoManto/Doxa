@@ -953,6 +953,27 @@
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>doxa<span class="w"> </span>run<span class="w"> </span>scenarios/hormuz.yaml
 </span></code></pre></div>
 <p>Replace <code>hormuz.yaml</code> with any other scenario file from the <code>scenarios/</code> folder as needed.</p>
+<h2 id="start-the-api-server">Start the API Server<a class="headerlink" href="#start-the-api-server" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>pip<span class="w"> </span>install<span class="w"> </span>doxa-ai
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>uvicorn<span class="w"> </span>api:app<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">5000</span>
+</span></code></pre></div>
+<h2 id="security-configuration-optional">Security Configuration (optional)<a class="headerlink" href="#security-configuration-optional" title="Permanent link">&para;</a></h2>
+<p>The server runs in open mode by default. To restrict access, set environment variables before starting:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Require an API key for every endpoint and the WebSocket</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DOXA_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-secret-key&quot;</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># Restrict CORS to specific deployed origins (comma-separated)</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DOXA_CORS_ORIGINS</span><span class="o">=</span><span class="s2">&quot;https://my-app.example.com&quot;</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>uvicorn<span class="w"> </span>api:app<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">5000</span>
+</span></code></pre></div>
+<p>Then pass the key in every request:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>curl<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;X-API-Key: your-secret-key&quot;</span><span class="w"> </span>http://localhost:5000/api/status
+</span></code></pre></div>
+<p>Or via the WebSocket query param:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>ws://localhost:5000/ws/events?api_key=your-secret-key
+</span></code></pre></div>
+<p>Without <code>DOXA_API_KEY</code> set, the server behaves as before with no access control — suitable for local research use.</p>
 
 
 

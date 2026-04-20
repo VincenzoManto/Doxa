@@ -726,6 +726,78 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#security-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security Design
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Security Design">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authentication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#secret-redaction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Secret Redaction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#path-traversal-prevention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Path Traversal Prevention
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CORS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#concurrency-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Concurrency Safety
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#directory-layout" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1055,6 +1127,78 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#security-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security Design
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Security Design">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authentication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#secret-redaction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Secret Redaction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#path-traversal-prevention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Path Traversal Prevention
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CORS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#concurrency-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Concurrency Safety
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#directory-layout" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1297,6 +1441,18 @@ connected via REST and WebSocket. All simulation logic lives in <code>server/eng
 </span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>                 ├─ resource → SimulationEnvironment.portfolios[targets]
 </span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>                 └─ trust    → RelationGraph.update()
 </span></code></pre></div>
+<hr />
+<h2 id="security-design">Security Design<a class="headerlink" href="#security-design" title="Permanent link">&para;</a></h2>
+<h3 id="authentication">Authentication<a class="headerlink" href="#authentication" title="Permanent link">&para;</a></h3>
+<p>All endpoints use a single optional API key, controlled by the <code>DOXA_API_KEY</code> environment variable. When the variable is not set the server is fully open (development mode). When it is set, every HTTP endpoint and the WebSocket reject requests without a matching <code>X-API-Key</code> header (or <code>?api_key=</code> query param for WebSocket). Protection is implemented as a FastAPI <code>Depends(require_admin_api_key)</code> dependency injected into every handler, so it is evaluated per-request and never cached at startup.</p>
+<h3 id="secret-redaction">Secret Redaction<a class="headerlink" href="#secret-redaction" title="Permanent link">&para;</a></h3>
+<p>All responses that include parsed YAML configuration pass through <code>sanitize_for_response()</code>, which recursively masks any dict key named <code>api_key</code>, <code>token</code>, <code>secret</code>, or <code>password</code> with <code>***REDACTED***</code> before the response is serialised.</p>
+<h3 id="path-traversal-prevention">Path Traversal Prevention<a class="headerlink" href="#path-traversal-prevention" title="Permanent link">&para;</a></h3>
+<p><code>POST /api/config/load</code> resolves the submitted path relative to the repository root, enforces a <code>.yaml</code>/<code>.yml</code> extension check, then asserts the resolved path stays inside the <code>scenarios/</code> directory using <code>Path.relative_to()</code>. Any path that escapes the directory, points to a non-YAML file, or does not exist is rejected with <code>400 Bad Request</code>.</p>
+<h3 id="cors">CORS<a class="headerlink" href="#cors" title="Permanent link">&para;</a></h3>
+<p>Allowed origins are no longer hardcoded to <code>*</code>. They default to a set of localhost development ports and can be overridden at runtime with the <code>DOXA_CORS_ORIGINS</code> environment variable (comma-separated list).</p>
+<h3 id="concurrency-safety">Concurrency Safety<a class="headerlink" href="#concurrency-safety" title="Permanent link">&para;</a></h3>
+<p><code>DoxaEngine.event_history</code> and <code>resource_history</code> are mutated only under <code>_state_lock</code>. All read paths (<code>get_events</code>, <code>get_events_page</code>, <code>get_global_timeline</code>) acquire the same lock before iterating, eliminating data races between the simulation thread and concurrent API requests. Portfolio mutations from privileged operations (<code>godmode</code>) are performed under <code>env._lock</code>, consistent with the rest of the engine.</p>
 <hr />
 <h2 id="directory-layout">Directory Layout<a class="headerlink" href="#directory-layout" title="Permanent link">&para;</a></h2>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>server/
