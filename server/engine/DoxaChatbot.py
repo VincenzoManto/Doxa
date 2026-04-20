@@ -24,6 +24,7 @@ to the LLM until a final text reply is produced.
 Currently only the ``ollama`` provider is supported for the chatbot itself;
 the simulation agents can use any provider.
 """
+import os
 from typing import Optional
 import autogen
 
@@ -40,7 +41,7 @@ class DoxaChatbot(autogen.ConversableAgent):
             llm_config = {
                 "config_list": [{
                     "model": self.model,
-                    "base_url": "http://localhost:11434/v1",
+                    "base_url": os.environ.get('OLLAMA_URL', 'http://localhost:11434/v1'),
                     "api_type": "openai",
                     "api_key": "ollama",
                     "price": [0,0]
