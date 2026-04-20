@@ -2230,7 +2230,7 @@ identical agents.</p>
 <td>string</td>
 <td>No</td>
 <td><code>ollama</code></td>
-<td>LLM provider: <code>ollama</code> | <code>openai</code> | <code>google</code> | <code>grok</code>.</td>
+<td>LLM provider: <code>ollama</code> | <code>claude</code> | <code>openai</code> | <code>google</code> | <code>grok</code>.</td>
 </tr>
 <tr>
 <td><code>model_name</code> (or <code>model</code>)</td>
@@ -2244,7 +2244,14 @@ identical agents.</p>
 <td>string</td>
 <td>No</td>
 <td><code>""</code></td>
-<td>Provider API key. If omitted, the engine looks for <code>OPENAI_API_KEY</code> / <code>GOOGLE_API_KEY</code> / <code>GROK_API_KEY</code> in env vars and then the <code>.env</code> file.</td>
+<td>Provider API key. If omitted, the engine looks for <code>OPENAI_API_KEY</code> / <code>GOOGLE_API_KEY</code> / <code>GROK_API_KEY</code> / <code>ANTHROPIC_API_KEY</code> /  in env vars and then the <code>.env</code> file.</td>
+</tr>
+<tr>
+<td><code>OLLAMA_URL</code> <em>(env var)</em></td>
+<td>string</td>
+<td>No</td>
+<td><code>http://localhost:11434</code></td>
+<td>Base URL for the Ollama server. Set this env var to point agents at a remote or non-default Ollama instance. The <code>/v1</code> path is appended automatically.</td>
 </tr>
 <tr>
 <td><code>base_url</code></td>
