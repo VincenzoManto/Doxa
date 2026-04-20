@@ -86,7 +86,9 @@ cp .env.example .env        # (1) add at least one provider key
 docker compose up --build   # (2) backend :5000 · frontend :3000
 ```
 
-1. Supported keys: `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `GROK_API_KEY`. Leave unused keys blank. For a fully local setup use Ollama — no key required.
+1. Supported keys: `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `GROK_API_KEY`, `CLAUDE_API_KEY`. Leave unused keys blank.
+2. For Ollama, you can set `OLLAMA_URL` to a custom endpoint instead of using the local default.
+3. For Claude/Anthropic, you can set `CLAUDE_URL` to a custom endpoint if needed.
 
 See [Quick Start](quickstart.md) for local dev, Ollama-only, and bare-metal instructions.
 

@@ -14,7 +14,7 @@ Doxa is a YAML-driven multi-agent simulation platform for economic and social sy
 
 ## Quick Start
 
-1. Copy `.env.example` to `.env` and add your provider keys.
+1. Copy `.env.example` to `.env` and add your provider keys. For Ollama, you can optionally set `OLLAMA_URL` to a custom endpoint. For Claude, set `CLAUDE_API_KEY` and optionally `CLAUDE_URL`.
 2. For local development:
   - Backend: `pip install -r server/requirements-dev.txt`
   - Frontend: `cd client && npm install`
