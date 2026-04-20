@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 import api
 
@@ -215,8 +216,9 @@ def test_websocket_requires_api_key_when_configured(monkeypatch):
     try:
         with client.websocket_connect("/ws/events"):
             assert False, "WebSocket connection should require an API key"
-    except Exception as exc:
-        assert "1008" in str(exc)
+    except WebSocketDisconnect as exc:
+        assert exc.code == 1008
+        assert exc.reason == "Invalid or missing API key"
 
 
 def test_websocket_accepts_api_key_when_configured(monkeypatch):

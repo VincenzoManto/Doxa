@@ -772,33 +772,35 @@ class DoxaEngine:
         Returns:
             ``"SUCCESS: <action> executed."`` or a ``"FAILED: …"`` message.
         """
-        with self.env._lock:
-          if action == 'inject_resource':
-            agent = params['agent']
-            resource_name = params['resource']
-            amount = params['amount']
-            if agent not in self.env.portfolios:
-                return f"FAILED: Agent {agent} not found."
-            self.env.portfolios[agent][resource_name] = self.env.portfolios[agent].get(resource_name, 0) + amount
-          elif action == 'set_constraint':
-            agent = params['agent']
-            resource_name = params['resource']
-            minv = params.get('min')
-            maxv = params.get('max')
-            if agent not in self.env.agents:
-                return f"FAILED: Agent {agent} not found."
-            if resource_name not in self.env.agents[agent].constraints:
-                self.env.agents[agent].constraints[resource_name] = {}
-            if minv is not None:
-                self.env.agents[agent].constraints[resource_name]['min'] = minv
-            if maxv is not None:
-                self.env.agents[agent].constraints[resource_name]['max'] = maxv
-          elif action == 'set_portfolio':
-            agent = params['agent']
-            portfolio = params['portfolio']
-            if agent not in self.env.portfolios:
-                return f"FAILED: Agent {agent} not found."
-            self.env.portfolios[agent] = dict(portfolio)
+        if action == 'inject_resource':
+            with self.env._lock:
+                agent = params['agent']
+                resource_name = params['resource']
+                amount = params['amount']
+                if agent not in self.env.portfolios:
+                    return f"FAILED: Agent {agent} not found."
+                self.env.portfolios[agent][resource_name] = self.env.portfolios[agent].get(resource_name, 0) + amount
+        elif action == 'set_constraint':
+            with self.env._lock:
+                agent = params['agent']
+                resource_name = params['resource']
+                minv = params.get('min')
+                maxv = params.get('max')
+                if agent not in self.env.agents:
+                    return f"FAILED: Agent {agent} not found."
+                if resource_name not in self.env.agents[agent].constraints:
+                    self.env.agents[agent].constraints[resource_name] = {}
+                if minv is not None:
+                    self.env.agents[agent].constraints[resource_name]['min'] = minv
+                if maxv is not None:
+                    self.env.agents[agent].constraints[resource_name]['max'] = maxv
+        elif action == 'set_portfolio':
+            with self.env._lock:
+                agent = params['agent']
+                portfolio = params['portfolio']
+                if agent not in self.env.portfolios:
+                    return f"FAILED: Agent {agent} not found."
+                self.env.portfolios[agent] = dict(portfolio)
         elif action == 'send_message':
             target = params['to']
             message = params['message']
