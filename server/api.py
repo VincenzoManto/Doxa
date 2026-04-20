@@ -17,18 +17,44 @@ NOTE: To run with reload, use:
 """
 import asyncio
 import json
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Body, HTTPException, Query
+import logging
+import os
+from pathlib import Path
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Body, Depends, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any, Optional
 
 from fastapi.responses import JSONResponse, Response
 from engine.DoxaEngine import DoxaEngine, config_yaml
 
+logger = logging.getLogger(__name__)
+SERVER_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = SERVER_ROOT.parent
+SCENARIOS_ROOT = (REPO_ROOT / "scenarios").resolve()
+SECRET_FIELD_NAMES = {"api_key", "token", "secret", "password"}
+
+
+def get_allowed_origins() -> List[str]:
+    raw_origins = os.environ.get("DOXA_CORS_ORIGINS", "")
+    if raw_origins.strip():
+        return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+    return [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+        "http://localhost:5000",
+        "http://127.0.0.1:5000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=get_allowed_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -51,8 +77,8 @@ class ConnectionManager:
         for connection in self.active_connections:
             try:
                 await connection.send_text(msg_str)
-            except:
-                pass
+            except Exception:
+                logger.exception("Failed to broadcast websocket message")
 
 manager = ConnectionManager()
 
@@ -116,7 +142,7 @@ async def socket_worker():
                 if snap:
                     await manager.broadcast(snap)
         except Exception:
-            pass
+            logger.exception("Socket worker failed while processing an event")
 
 @app.on_event("startup")
 async def startup_event():
@@ -133,8 +159,58 @@ def publish_event(payload: Dict[str, Any]):
     event_queue.put(engine.record_event(payload))
 
 
+def require_admin_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
+    expected_api_key = os.environ.get("DOXA_API_KEY")
+    if expected_api_key and x_api_key != expected_api_key:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+def sanitize_for_response(value: Any) -> Any:
+    if isinstance(value, dict):
+        sanitized: Dict[str, Any] = {}
+        for key, item in value.items():
+            if isinstance(key, str) and key.lower() in SECRET_FIELD_NAMES:
+                sanitized[key] = "***REDACTED***"
+            else:
+                sanitized[key] = sanitize_for_response(item)
+        return sanitized
+    if isinstance(value, list):
+        return [sanitize_for_response(item) for item in value]
+    return value
+
+
+def ensure_websocket_api_key(websocket: WebSocket) -> bool:
+    expected_api_key = os.environ.get("DOXA_API_KEY")
+    if not expected_api_key:
+        return True
+
+    provided_api_key = websocket.headers.get("x-api-key") or websocket.query_params.get("api_key")
+    return provided_api_key == expected_api_key
+
+
+def resolve_scenario_path(path_value: str) -> Path:
+    candidate = Path(path_value)
+    if not candidate.is_absolute():
+        candidate = (REPO_ROOT / candidate).resolve()
+    else:
+        candidate = candidate.resolve()
+
+    if candidate.suffix.lower() not in {".yaml", ".yml"}:
+        raise HTTPException(status_code=400, detail="Scenario path must point to a YAML file")
+
+    try:
+        candidate.relative_to(SCENARIOS_ROOT)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Scenario path must be inside the scenarios directory") from exc
+
+    if not candidate.is_file():
+        raise HTTPException(status_code=400, detail="Scenario file not found")
+
+    return candidate
+
+
 @app.post("/api/run")
-def run_simulation():
+def run_simulation(_auth: None = Depends(require_admin_api_key)):
     try:
         publish_event({"type": "setup", "text": "Registering agent tools and starting simulation…"})
         status = engine.start_run()
@@ -145,7 +221,7 @@ def run_simulation():
 
 
 @app.post("/api/pause")
-def pause_simulation():
+def pause_simulation(_auth: None = Depends(require_admin_api_key)):
     try:
         status = engine.pause_run()
     except RuntimeError as exc:
@@ -155,7 +231,7 @@ def pause_simulation():
 
 
 @app.post("/api/resume")
-def resume_simulation():
+def resume_simulation(_auth: None = Depends(require_admin_api_key)):
     try:
         status = engine.resume_run()
     except RuntimeError as exc:
@@ -165,7 +241,7 @@ def resume_simulation():
 
 
 @app.post("/api/restart")
-def restart_simulation():
+def restart_simulation(_auth: None = Depends(require_admin_api_key)):
     try:
         status = engine.restart_run()
     except RuntimeError as exc:
@@ -175,13 +251,13 @@ def restart_simulation():
 
 
 @app.get("/api/status")
-def get_status():
+def get_status(_auth: None = Depends(require_admin_api_key)):
     return engine.get_status()
 
 # engine.env.reset(engine.raw_config['actors'])
 # Endpoint REST: chatbot Q&A
 @app.post("/api/chatbot")
-def chatbot_query(payload: Dict[str, Any]):
+def chatbot_query(payload: Dict[str, Any], _auth: None = Depends(require_admin_api_key)):
     query = payload.get("query")
     if not query:
         return JSONResponse(status_code=400, content={"error": "Missing query"})
@@ -193,7 +269,7 @@ def chatbot_query(payload: Dict[str, Any]):
 
 # --- REST API: Expose all engine features ---
 @app.get("/api/export")
-def export_data(format: str = Query(default="json")):
+def export_data(format: str = Query(default="json"), _auth: None = Depends(require_admin_api_key)):
     try:
         return JSONResponse(content=engine.export_data(None, format))
     except ValueError as exc:
@@ -201,7 +277,7 @@ def export_data(format: str = Query(default="json")):
 
 
 @app.get("/api/export.zip")
-def export_zip():
+def export_zip(_auth: None = Depends(require_admin_api_key)):
     zip_bytes = engine.build_export_zip()
     return Response(
         content=zip_bytes,
@@ -214,42 +290,43 @@ def export_zip():
 def get_events(
     limit: int = Query(default=500, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
+    _auth: None = Depends(require_admin_api_key),
 ):
     events, total = engine.get_events_page(limit, offset)
     return {"events": events, "total": total, "offset": offset, "limit": limit}
 
 
 @app.get("/api/timeline/global")
-def get_global_timeline():
+def get_global_timeline(_auth: None = Depends(require_admin_api_key)):
     return {"timeline": engine.get_global_timeline()}
 
 
 @app.get("/api/timeline/agent/{agent_id}")
-def get_agent_timeline(agent_id: str):
+def get_agent_timeline(agent_id: str, _auth: None = Depends(require_admin_api_key)):
     return {"timeline": engine.get_agent_timeline(agent_id)}
 
 
 @app.get("/api/memory/{agent_id}")
-def get_agent_memory(agent_id: str, limit: int = Query(default=80, ge=1, le=200)):
+def get_agent_memory(agent_id: str, limit: int = Query(default=80, ge=1, le=200), _auth: None = Depends(require_admin_api_key)):
     return engine.get_agent_memory_graph(agent_id, limit)
 
 
 @app.get("/api/config")
-def get_config():
-    return engine.get_config()
+def get_config(_auth: None = Depends(require_admin_api_key)):
+    return sanitize_for_response(engine.get_config())
 
 
 @app.post("/api/config/validate")
-def validate_config(payload: Dict[str, Any] = Body(...)):
+def validate_config(payload: Dict[str, Any] = Body(...), _auth: None = Depends(require_admin_api_key)):
     yaml_text = payload.get("yaml_text", "")
     try:
-        return engine.validate_yaml(yaml_text)
+        return sanitize_for_response(engine.validate_yaml(yaml_text))
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.put("/api/config")
-def update_config(payload: Dict[str, Any] = Body(...)):
+def update_config(payload: Dict[str, Any] = Body(...), _auth: None = Depends(require_admin_api_key)):
     yaml_text = payload.get("yaml_text", "")
     try:
         publish_event({"type": "setup", "text": "Applying configuration and initialising agents…"})
@@ -259,26 +336,27 @@ def update_config(payload: Dict[str, Any] = Body(...)):
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     publish_event({"type": "config", "text": "Configuration updated"})
-    return config
+    return sanitize_for_response(config)
 
 
 @app.post("/api/config/load")
-def load_config(payload: Dict[str, Any] = Body(...)):
+def load_config(payload: Dict[str, Any] = Body(...), _auth: None = Depends(require_admin_api_key)):
     path = payload.get("path")
     if not path:
         raise HTTPException(status_code=400, detail="Missing path")
+    resolved_path = resolve_scenario_path(path)
     try:
-        publish_event({"type": "setup", "text": f"Loading scenario from {path}…"})
-        config = engine.load_config_path(path)
+        publish_event({"type": "setup", "text": f"Loading scenario from {resolved_path}…"})
+        config = engine.load_config_path(str(resolved_path))
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    publish_event({"type": "config", "text": f"Configuration loaded from {path}"})
-    return config
+    publish_event({"type": "config", "text": f"Configuration loaded from {resolved_path}"})
+    return sanitize_for_response(config)
 
 @app.post("/api/godmode")
-async def godmode(payload: Dict[str, Any] = Body(...)):
+async def godmode(payload: Dict[str, Any] = Body(...), _auth: None = Depends(require_admin_api_key)):
     action = payload.get("action")
     params = payload.get("params", {})
     result = engine.godmode(action, params)
@@ -290,7 +368,7 @@ async def godmode(payload: Dict[str, Any] = Body(...)):
     return {"result": result}
 
 @app.post("/api/step")
-async def step_agent(payload: Dict[str, Any]):
+async def step_agent(payload: Dict[str, Any], _auth: None = Depends(require_admin_api_key)):
     agent_id: Optional[str] = payload.get("agent_id")
     try:
         status = engine.step_once(agent_id)
@@ -300,29 +378,29 @@ async def step_agent(payload: Dict[str, Any]):
     return status
 
 @app.post("/api/reset")
-async def reset():
+async def reset(_auth: None = Depends(require_admin_api_key)):
     status = engine.reset_simulation()
     publish_event({"type": "reset", "text": "Simulation reset", **status})
     return status
 
 @app.get("/api/agents")
-def get_agents():
+def get_agents(_auth: None = Depends(require_admin_api_key)):
     return {"agents": engine.list_agents()}
 
 @app.get("/api/portfolios")
-def get_portfolios():
+def get_portfolios(_auth: None = Depends(require_admin_api_key)):
     return engine.export_data({"portfolios": True}, format="dict")
 
 @app.get("/api/trades")
-def get_trades():
+def get_trades(_auth: None = Depends(require_admin_api_key)):
     return {"trades": engine.env.pending_trades}
 
 @app.get("/api/resources")
-def get_resources():
+def get_resources(_auth: None = Depends(require_admin_api_key)):
     return engine.export_data({"resources": True}, format="dict")
 
 @app.get("/api/agent/{agent_id}")
-def get_agent(agent_id: str):
+def get_agent(agent_id: str, _auth: None = Depends(require_admin_api_key)):
     details = engine.get_agent_details(agent_id)
     if not details:
         return JSONResponse(status_code=404, content={"error": "Agent not found"})
@@ -331,12 +409,12 @@ def get_agent(agent_id: str):
 # ── Market endpoints ─────────────────────────────────────────────────────────
 
 @app.get("/api/markets")
-def get_markets():
+def get_markets(_auth: None = Depends(require_admin_api_key)):
     return {"markets": engine.get_markets()}
 
 
 @app.get("/api/markets/{resource}/orderbook")
-def get_market_orderbook(resource: str, depth: int = Query(default=10, ge=1, le=100)):
+def get_market_orderbook(resource: str, depth: int = Query(default=10, ge=1, le=100), _auth: None = Depends(require_admin_api_key)):
     book = engine.get_market_orderbook(resource, depth)
     if book is None:
         return JSONResponse(status_code=404, content={"error": f"No market for '{resource}'"})
@@ -344,7 +422,7 @@ def get_market_orderbook(resource: str, depth: int = Query(default=10, ge=1, le=
 
 
 @app.get("/api/markets/{resource}/price_history")
-def get_market_price_history(resource: str):
+def get_market_price_history(resource: str, _auth: None = Depends(require_admin_api_key)):
     history = engine.get_market_price_history(resource)
     if history is None:
         return JSONResponse(status_code=404, content={"error": f"No market for '{resource}'"})
@@ -354,26 +432,29 @@ def get_market_price_history(resource: str):
 # ── Relations endpoint ───────────────────────────────────────────────────────
 
 @app.get("/api/relations")
-def get_relations():
+def get_relations(_auth: None = Depends(require_admin_api_key)):
     return {"relations": engine.get_relations()}
 
 
 # ── Macro metrics endpoints ──────────────────────────────────────────────────
 
 @app.get("/api/macro")
-def get_macro_metrics():
+def get_macro_metrics(_auth: None = Depends(require_admin_api_key)):
     """Latest macro snapshot: Gini, HHI, price volatility, system panic."""
     return {"macro": engine.get_macro_metrics()}
 
 
 @app.get("/api/macro/history")
-def get_macro_history():
+def get_macro_history(_auth: None = Depends(require_admin_api_key)):
     """Full macro metrics history (up to 500 ticks)."""
     return {"history": engine.get_macro_history()}
 
 
 @app.websocket("/ws/events")
 async def websocket_endpoint(websocket: WebSocket):
+    if not ensure_websocket_api_key(websocket):
+        await websocket.close(code=1008, reason="Invalid or missing API key")
+        return
     await manager.connect(websocket)
     try:
         while True:

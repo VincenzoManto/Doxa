@@ -166,6 +166,30 @@ WorldEventScheduler.tick()
 
 ---
 
+## Security Design
+
+### Authentication
+
+All endpoints use a single optional API key, controlled by the `DOXA_API_KEY` environment variable. When the variable is not set the server is fully open (development mode). When it is set, every HTTP endpoint and the WebSocket reject requests without a matching `X-API-Key` header (or `?api_key=` query param for WebSocket). Protection is implemented as a FastAPI `Depends(require_admin_api_key)` dependency injected into every handler, so it is evaluated per-request and never cached at startup.
+
+### Secret Redaction
+
+All responses that include parsed YAML configuration pass through `sanitize_for_response()`, which recursively masks any dict key named `api_key`, `token`, `secret`, or `password` with `***REDACTED***` before the response is serialised.
+
+### Path Traversal Prevention
+
+`POST /api/config/load` resolves the submitted path relative to the repository root, enforces a `.yaml`/`.yml` extension check, then asserts the resolved path stays inside the `scenarios/` directory using `Path.relative_to()`. Any path that escapes the directory, points to a non-YAML file, or does not exist is rejected with `400 Bad Request`.
+
+### CORS
+
+Allowed origins are no longer hardcoded to `*`. They default to a set of localhost development ports and can be overridden at runtime with the `DOXA_CORS_ORIGINS` environment variable (comma-separated list).
+
+### Concurrency Safety
+
+`DoxaEngine.event_history` and `resource_history` are mutated only under `_state_lock`. All read paths (`get_events`, `get_events_page`, `get_global_timeline`) acquire the same lock before iterating, eliminating data races between the simulation thread and concurrent API requests. Portfolio mutations from privileged operations (`godmode`) are performed under `env._lock`, consistent with the rest of the engine.
+
+---
+
 ## Directory Layout
 
 ```
