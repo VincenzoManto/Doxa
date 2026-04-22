@@ -267,14 +267,15 @@ class SimulationEnvironment:
             initialized = bool(rag_stats.get("initialized", False))
             docs = None
 
+            # Usa get_all() invece di list()
             if not initialized:
-                docs = await memory.list()
+                docs = await memory.get_all()
                 estimated_count = len(docs)
                 initialized = True
 
             overflow = max(0, estimated_count + len(payload) - rag_limit)
             if overflow > 0:
-                docs = docs if docs is not None else await memory.list()
+                docs = docs if docs is not None else await memory.get_all()
                 delete_count = min(len(docs), overflow)
                 for document in docs[:delete_count]:
                     await memory.delete(document.id)
@@ -313,7 +314,7 @@ class SimulationEnvironment:
             }
 
         async def load_docs():
-            listed = await memory.list()
+            listed = await memory.get_all()
             return listed[-limit:]
 
         try:
@@ -509,6 +510,19 @@ class SimulationEnvironment:
             op = ops.get(op_name)
             if not op:
                 return f"FAILED: Operation '{op_name}' not found."
+
+            # Probabilistic outcome logic
+            prob = op.get('success_probability', 1.0)
+            try:
+                prob = float(prob)
+            except Exception:
+                prob = 1.0
+            if prob < 1.0:
+                if random.random() > prob:
+                    if self.log:
+                        self.log.print(f"Operation '{op_name}' by {actor_id} failed (probabilistic outcome, p={prob})")
+                    return f"FAILED: Operation '{op_name}' failed (probabilistic outcome, p={prob})"
+
             port = self._portfolios[actor_id]
             before = deepcopy(port)
             tbefore = None
