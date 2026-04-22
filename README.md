@@ -1,5 +1,3 @@
-![logo.png](logo.png)
-
 # Doxa: A Multi-Agent Simulation Platform for Economic and Social Dynamics
 
 [Quick Start](QUICKSTART.md) | [Contributing](CONTRIBUTING.md) | [Code of Conduct](CODE_OF_CONDUCT.md) | [Paper](PAPER.md) | [YAML Reference](CONFIG_YAML_REFERENCE.md) | [Full Docs](https://vincenzomanto.github.io/Doxa)
@@ -25,6 +23,8 @@ Doxa is a YAML-driven multi-agent simulation platform for economic and social sy
 Do you want to just run Doxa without installation? Here our [![Open in Colab](https://img.shields.io/badge/Colab-black?logo=googlecolab)](https://colab.research.google.com/github/VincenzoManto/Doxa/blob/main/notebooks/doxa.ipynb) is the fastest way to get started.
 
 See [QUICKSTART.md](QUICKSTART.md) for the full setup flow.
+
+![](https://substackcdn.com/image/fetch/$s_!BVMA!,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fa664853e-6cbe-436b-81c6-8ee16d91aa75_1000x1607.png)
 
 ### Possible installation flows:
 
