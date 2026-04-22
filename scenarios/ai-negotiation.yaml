@@ -60,6 +60,7 @@ world_events:
 actors:
   - id: aurora
     provider: google
+    replicas: 2
     model_name: gemini-2.5-pro
     persona: |
       Maritime trading state. Prefer broad trade access, coalition-building, and de-escalation.
@@ -96,6 +97,7 @@ actors:
           security: 1
   - id: cygnus
     provider: google
+    replicas: 2
     model_name: gemini-2.5-pro
     persona: |
       Security-focused state. Trade when necessary but prioritize leverage and deterrence.
@@ -114,6 +116,7 @@ actors:
           security: 2
   - id: draco
     provider: google
+    replicas: 2
     model_name: gemini-2.5-pro
     persona: |
       Revisionist state. Seek favorable bilateral bargains but keep credible hard-power options.

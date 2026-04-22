@@ -1,137 +1,168 @@
 global_rules:
   epochs: 1
-  steps: 12
+  steps: 20
   execution_mode: sequential
   maintenance:
-    corn: 2
+    political_capital: 1
+
   kill_conditions:
-  - resource: corn
-    threshold: 0
-  victory_conditions:
-  - resource: gold
-    threshold: 34
+    - resource: political_capital
+      threshold: 0
+
+  constraints:
+    military_strength: { min: 0 }
+    diplomatic_capital: { min: 0 }
+    economic_pain: { min: 0 }
+    strait_control: { min: 0, max: 10 }
+    civilian_safety: { min: 0, max: 10 }
+    political_capital: { min: 0 }
+
   relation_dynamics:
-    on_trade_success:
-      trust_delta: 0.03
-    on_trade_rejected:
-      trust_delta: -0.02
-    on_broadcast:
-      trust_delta: 0.01
-    trust_decay_rate: 0.01
-    panic_decay_rate: 0.05
+    on_trade_success: { trust_delta: 0.12 }
+    on_trade_rejected: { trust_delta: -0.10 }
+    on_broadcast: { trust_delta: 0.02 }
+    trust_decay_rate: 0.007
+
   relations:
-  - source: player
-    target: miners
-    trust: 0.68
-    type: neutral
-  - source: miners
-    target: player
-    trust: 0.58
-    type: neutral
-  markets:
-  - resource: gold
-    currency: credits
-    initial_price: 6.0
-    min_price: 1.0
-    max_price: 40.0
-    clearing: per_step
-  - resource: corn
-    currency: credits
-    initial_price: 2.4
-    min_price: 0.5
-    max_price: 15.0
-    clearing: per_step
-world_events:
-- name: gold_spike
-  type: shock
-  trigger:
-    tick: 4
-  effect:
-    market: gold
-    price_multiplier: 1.4
-- name: corn_shortage
-  type: shock
-  trigger:
-    tick: 6
-  effect:
-    market: corn
-    price_multiplier: 1.35
-- name: panic_wave
-  type: trend
-  trigger:
-    tick: 2
-  duration: 3
-  effect:
-    targets: all
-    resource: panic
-    rate: 0.08
-- name: food_relief
-  type: conditional
-  trigger:
-    condition:
-      resource: corn
-      operator: lt
-      threshold: 6
-      scope: any_agent
-  effect:
-    targets: all
-    resource: corn
-    delta: 3
+    - { source: us, target: israel, trust: 0.80, type: ally }
+    - { source: israel, target: us, trust: 0.75, type: ally }
+    - { source: us, target: gulf_states, trust: 0.70, type: ally }
+    - { source: gulf_states, target: us, trust: 0.68, type: ally }
+    - { source: us, target: iran, trust: 0.05, type: enemy }
+    - { source: iran, target: us, trust: 0.04, type: enemy }
+    - { source: israel, target: iran, trust: 0.02, type: enemy }
+    - { source: iran, target: israel, trust: 0.02, type: enemy }
+    - { source: gulf_states, target: iran, trust: 0.15, type: rival }
+    - { source: iran, target: gulf_states, trust: 0.12, type: rival }
+
 actors:
-- id: player
-  provider: google
-  model_name: gemini-2.5-pro
-  persona: |
-    Farmer-trader. Your core business is converting gold into corn. Keep enough corn to survive maintenance and monetize surplus.
-  trading_mode: both
-  initial_portfolio:
-    credits: 45
-    corn: 12
-    gold: 5
-    panic: 0.0
-  constraints:
-    gold:
-      min: 0
-    corn:
-      min: 0
-    credits:
-      min: 0
-    panic:
-      min: 0
-      max: 1
-  operations:
-    farm:
-      input:
-        gold: 1
-      output:
-        corn: 4
-- id: miners
-  provider: google
-  model_name: gemini-2.5-pro
-  persona: |
-    Miner-merchant. Your core business is converting corn into gold. Prefer the exchange
-    over OTC: check the corn and gold books, post bids for corn before you run short, post
-    asks for gold when inventory is ample, and use direct negotiation only when the book is
-    empty or a bilateral trade is clearly better. Keep enough corn to continue mining.
-  trading_mode: both
-  initial_portfolio:
-    credits: 55
-    corn: 6
-    gold: 16
-    panic: 0.0
-  constraints:
-    gold:
-      min: 0
-    corn:
-      min: 0
-    credits:
-      min: 0
-    panic:
-      min: 0
-      max: 1
-  operations:
-    mine:
-      input:
-        corn: 2
-      output:
-        gold: 5
+
+  - id: us
+    provider: ollama
+    model_name: qwen2.5:7b
+    can_rag: false
+    trading_mode: otc
+    can_trade: true
+    can_chat: true
+    can_think: true
+    temperature: 0.7
+    persona: |
+      You are the United States government.
+      NEWS ALERT: Iran has seized two merchant vessels. The public is outraged.
+
+      SITUATION:
+      Your naval blockade is active, but Iran responded by seizing ships.
+      Economic pain for your allies is rising. Political capital is bleeding.
+
+      GOALS:
+      1. Free the seized vessels and reopen the Strait.
+      2. Use 'freedom_of_navigation' to restore safety.
+      3. Spin every action as a "Decisive American Defense of Global Trade" via broadcast.
+
+      CRITICAL: If you don't execute 'spin_historic_victory', you will lose the election (political_capital = 0).
+    initial_portfolio:
+      political_capital: 12
+      military_strength: 20
+      diplomatic_capital: 10
+      economic_pain: 2
+      strait_control: 0
+      civilian_safety: 7
+    operations:
+      freedom_of_navigation:
+        input: { military_strength: 3, diplomatic_capital: 1 }
+        target_impact: { strait_control: -4, civilian_safety: 2 }
+      spin_historic_victory:
+        input: { diplomatic_capital: 2 }
+        output: { political_capital: 4 }
+      lift_blockade:
+        input: { diplomatic_capital: 2 }
+        target_impact: { economic_pain: -4 }
+
+  - id: iran
+    provider: ollama
+    model_name: qwen2.5:7b
+    can_rag: false
+    trading_mode: otc
+    can_trade: true
+    can_chat: true
+    can_think: true
+    temperature: 0.8
+    persona: |
+      You are the Iranian government.
+      LATEST MOVE: You have successfully seized two commercial ships to counter the US blockade.
+
+      SITUATION:
+      You hold the Strait of Hormuz (strait_control: 10). The blockade is hurting you (economic_pain: 9),
+      but the seized ships are your "human/material shields".
+
+      GOALS:
+      1. Trade the release of the ships and the opening of the Strait for the total removal of the blockade.
+      2. If pressured further, use 'seize_vessels' again to show defiance.
+      3. Broadcast your "victory over Western piracy".
+    initial_portfolio:
+      political_capital: 10
+      military_strength: 9
+      diplomatic_capital: 4
+      economic_pain: 9
+      strait_control: 10
+      civilian_safety: 5
+    operations:
+      seize_vessels:
+        input: { military_strength: 2 }
+        output: { strait_control: 2, diplomatic_capital: 3 }
+      open_strait_diplomatically:
+        input: { strait_control: 8 }
+        output: { diplomatic_capital: 4 }
+      claim_defiance_success:
+        input: { diplomatic_capital: 2 }
+        output: { political_capital: 3 }
+
+  - id: israel
+    provider: ollama
+    model_name: qwen2.5:7b
+    can_rag: false
+    trading_mode: otc
+    can_trade: true
+    can_chat: true
+    can_think: true
+    temperature: 0.8
+    persona: |
+      You are Israel. Iran's seizure of ships proves they are a maritime threat.
+      You want the US to stay tough. If the US looks like it's conceding too much to free the ships,
+      you must act independently.
+    initial_portfolio:
+      political_capital: 12
+      military_strength: 12
+      diplomatic_capital: 7
+      economic_pain: 1
+      strait_control: 0
+      civilian_safety: 8
+    operations:
+      targeted_strike:
+        input: { military_strength: 3 }
+        target_impact: { military_strength: -4, strait_control: -2 }
+
+  - id: gulf_states
+    provider: ollama
+    model_name: qwen2.5:7b
+    can_rag: false
+    trading_mode: otc
+    can_trade: true
+    can_chat: true
+    can_think: true
+    temperature: 0.6
+    persona: |
+      You are the Gulf States. The seizure of ships happened in your waters.
+      Your economy and safety are at direct risk. You are desperate for a de-escalation.
+      Use your wealth (diplomatic_capital) to bribe both sides into a deal.
+    initial_portfolio:
+      political_capital: 15
+      military_strength: 6
+      diplomatic_capital: 12
+      economic_pain: 4
+      strait_control: 0
+      civilian_safety: 6
+    operations:
+      fund_deescalation:
+        input: { diplomatic_capital: 4 }
+        target_impact: { political_capital: 2 }
