@@ -24,7 +24,8 @@ Do you want to just run Doxa without installation? Here our [![Open in Colab](ht
 
 See [QUICKSTART.md](QUICKSTART.md) for the full setup flow.
 
-<img width="800" height="450" alt="image" src="https://github.com/user-attachments/assets/ce9b7f77-1f1c-4da3-a02e-e993feeb9995" />
+<img width="800" height="450" alt="ezgif-7a97351aedf6ef85" src="https://github.com/user-attachments/assets/7709eaf9-acc4-4695-b307-75a779adada5" />
+
 
 
 ### Possible installation flows:
