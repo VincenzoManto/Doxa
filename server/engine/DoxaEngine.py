@@ -162,8 +162,6 @@ class DoxaEngine:
                 for resource_name, amount in resource_map.items():
                     if not isinstance(amount, (int, float)):
                         raise ValueError(f"{context}.{op_name}.{key}.{resource_name} must be numeric.")
-                    if key in ("input", "output") and amount < 0:
-                        raise ValueError(f"{context}.{op_name}.{key}.{resource_name} must be >= 0.")
 
     def _validate_condition_block(
         self,
