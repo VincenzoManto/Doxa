@@ -8,7 +8,7 @@ authors:
   given-names: "Riccardo"
   orcid: "https://orcid.org/0009-0003-1308-0230"
 title: "Doxa"
-version: 0.2.0
+version: 0.3.0
 doi: 10.5281/zenodo.19659522
 date-released: 2026-04-16
 url: "https://github.com/VincenzoManto/Doxa"

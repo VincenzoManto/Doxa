@@ -153,6 +153,13 @@ class DoxaEngine:
         for op_name, op_def in block.items():
             if not isinstance(op_def, dict):
                 raise ValueError(f"{context}.{op_name} must be a mapping.")
+            # Allow optional success_probability field
+            if "success_probability" in op_def:
+                prob = op_def["success_probability"]
+                if not isinstance(prob, (int, float)):
+                    raise ValueError(f"{context}.{op_name}.success_probability must be numeric.")
+                if not (0.0 <= float(prob) <= 1.0):
+                    raise ValueError(f"{context}.{op_name}.success_probability must be between 0 and 1.")
             for key in ("input", "output", "target_impact"):
                 resource_map = op_def.get(key, {})
                 if resource_map is None:

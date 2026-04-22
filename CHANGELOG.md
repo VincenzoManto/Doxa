@@ -25,3 +25,4 @@
 - Added environment template for provider credentials
 - Added CI workflow for server tests
 - Added contributor onboarding files
+- Fixed issues and added features #1, #2, #3

@@ -25,6 +25,7 @@ from typing import Any, Dict, Optional
 import os
 import tempfile
 import re
+import random
 from copy import deepcopy
 from agents.AgentEconomics import AgentEconomics
 from relations.RelationGraph import RelationGraph
@@ -510,17 +511,26 @@ class SimulationEnvironment:
             op = ops.get(op_name)
             if not op:
                 return f"FAILED: Operation '{op_name}' not found."
-
-            # Probabilistic outcome logic
+             # Probabilistic outcome logic
             prob = op.get('success_probability', 1.0)
             try:
                 prob = float(prob)
             except Exception:
                 prob = 1.0
+            # Probabilistic outcome: skip operation if random draw fails
             if prob < 1.0:
                 if random.random() > prob:
                     if self.log:
                         self.log.print(f"Operation '{op_name}' by {actor_id} failed (probabilistic outcome, p={prob})")
+                    # Log event for failed operation
+                    if hasattr(self, 'record_event'):
+                        self.record_event({
+                            "type": "operation_failed",
+                            "actor": actor_id,
+                            "operation": op_name,
+                            "probability": prob,
+                            "reason": "probabilistic_failure"
+                        })
                     return f"FAILED: Operation '{op_name}' failed (probabilistic outcome, p={prob})"
 
             port = self._portfolios[actor_id]
