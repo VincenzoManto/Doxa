@@ -40,7 +40,7 @@ emerges from the decisions of heterogeneous, bounded-rational agents.
 
     ---
 
-    OpenAI, Gemini, Grok, or Ollama. Each agent has a persona, hard constraints,
+    OpenAI, Gemini, Grok, Claude or Ollama. Each agent has a persona, hard constraints,
     tool access, and persistent RAG memory across epochs.
 
 - :material-chart-candlestick: **Market Microstructure**
@@ -86,7 +86,10 @@ cp .env.example .env        # (1) add at least one provider key
 docker compose up --build   # (2) backend :5000 · frontend :3000
 ```
 
-1. Supported keys: `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `GROK_API_KEY`. Leave unused keys blank. For a fully local setup use Ollama — no key required.
+1.   Supported keys: `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `GROK_API_KEY`,
+  `ANTHROPIC_API_KEY`. Leave unused keys blank. For a fully local setup use
+  Ollama, no key required; set `OLLAMA_URL` if your Ollama server is not at    
+  `http://localhost:11434`.
 
 See [Quick Start](quickstart.md) for local dev, Ollama-only, and bare-metal instructions.
 
