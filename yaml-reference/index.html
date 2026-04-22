@@ -1920,6 +1920,7 @@ so actors can tighten but not completely remove a global constraint.</p>
 </span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">        </span><span class="nt">house</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
 </span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">      </span><span class="nt">target_impact</span><span class="p">:</span><span class="w">        </span><span class="c1"># optional — effect on a second agent</span>
 </span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">        </span><span class="nt">morale</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">      </span><span class="nt">success_probability</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span><span class="w">  </span><span class="c1"># optional, default 1.0</span>
 </span></code></pre></div>
 <table>
 <thead>
@@ -1944,6 +1945,11 @@ so actors can tighten but not completely remove a global constraint.</p>
 <td><code>target_impact</code></td>
 <td>object</td>
 <td>Optional delta applied to a <strong>target</strong> agent's portfolio (can be negative). The agent providing <code>target</code> as an argument to the operation triggers this effect.</td>
+</tr>
+<tr>
+<td><code>success_probability</code></td>
+<td>number</td>
+<td>Optional, default <code>1.0</code></td>
 </tr>
 </tbody>
 </table>
