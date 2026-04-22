@@ -112,6 +112,7 @@ global_rules:
         house: 1
       target_impact:        # optional — effect on a second agent
         morale: 0.1
+      success_probability: 1.0  # optional, default 1.0
 ```
 
 | Sub-key | Type | Description |
@@ -119,6 +120,7 @@ global_rules:
 | `input` | object | Resources consumed (must be ≥ 0 per unit). |
 | `output` | object | Resources produced (must be ≥ 0 per unit). |
 | `target_impact` | object | Optional delta applied to a **target** agent's portfolio (can be negative). The agent providing `target` as an argument to the operation triggers this effect. |
+| `success_probability` | number | Optional, default `1.0` | Probability that the operation succeeds (0.0–1.0). If less than 1.0, the operation will only succeed with the given probability each time it is attempted. |
 
 > All operations support an `inputMultiplier` argument (default `1`);
 > all amounts are multiplied by it.
