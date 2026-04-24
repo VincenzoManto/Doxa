@@ -1,4 +1,4 @@
-# Doxa: A Multi-Agent Simulation Platform for Economic and Social Dynamics
+# Doxa: Stress-test social and economic systems with LLM agents.
 
 [Quick Start](QUICKSTART.md) | [Contributing](CONTRIBUTING.md) | [Code of Conduct](CODE_OF_CONDUCT.md) | [Paper](PAPER.md) | [YAML Reference](CONFIG_YAML_REFERENCE.md) | [Full Docs](https://vincenzomanto.github.io/Doxa)
 
