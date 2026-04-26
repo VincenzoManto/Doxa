@@ -545,6 +545,9 @@ class SimulationEnvironment:
             for r, v in op.get('input', {}).items(): port[r] -= v * multiplier
             for r, v in op.get('output', {}).items(): port[r] = port.get(r, 0) + v * multiplier
             if target_id and 'target_impact' in op and target_id in self._portfolios:
+                if target_id not in self._portfolios:
+                    # target can be already dead or never existed;
+                    return f"FAILED: Target '{target_id}' not found (killed or never existed)."
                 tbefore = deepcopy(self._portfolios[target_id])
                 if target_id in self._portfolios:
                     for r, v in op['target_impact'].items():
