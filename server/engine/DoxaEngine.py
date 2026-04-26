@@ -909,6 +909,15 @@ class DoxaEngine:
             writer.writerow({key: json.dumps(event.get(key)) if isinstance(event.get(key), (dict, list)) else event.get(key) for key in fieldnames})
         return output.getvalue()
 
+    def _summary(self):
+        '''Generate a brief text summary of the last simulation, using DoxaChatbot as a NLP engine explainer, based on _events_csv'''
+        prompt = f"""Given the following CSV of events from a multi-agent simulation, provide a brief summary of the key outcomes, trends, and notable moments. Focus on high-level insights rather than granular details.
+CSV:
+{self._events_csv()}
+Summary:"""
+        a = self.chatbot.answer(prompt)
+        return a
+
     def _agent_timeline_csv(self, agent_id: str):
         timeline = self.get_agent_timeline(agent_id)
         resource_names = sorted({resource_name for point in timeline for resource_name in point["resources"].keys()})
