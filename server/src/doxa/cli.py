@@ -15,7 +15,8 @@ def main():
 @click.argument("scenario_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--poll-interval", default=0.5, show_default=True, type=float, help="Status polling interval in seconds.")
 @click.option("--quiet", is_flag=True, help="Disable verbose simulation logs.")
-def run(scenario_path: Path, poll_interval: float, quiet: bool):
+@click.option("--summary", is_flag=True, help="Generate a summary of the simulation.")
+def run(scenario_path: Path, poll_interval: float, quiet: bool, summary: bool):
     """Run a Doxa YAML scenario until completion."""
     yaml_text = scenario_path.read_text(encoding="utf-8")
     engine = DoxaEngine(yaml_text, log_verbose=not quiet)
@@ -36,6 +37,10 @@ def run(scenario_path: Path, poll_interval: float, quiet: bool):
     click.echo(
         f"Simulation finished: state={status['state']}, epoch={status['epoch']}, step={status['step']}"
     )
+
+    if summary:
+        click.echo("Generating summary...")
+        click.echo(engine._summary())
 
 
 if __name__ == "__main__":
