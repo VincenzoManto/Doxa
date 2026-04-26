@@ -97,6 +97,7 @@ nav:
     - Architecture: architecture.md
     - YAML Reference: yaml-reference.md
     - API Reference: api.md
+  - How To: how-to.md
   - Research: paper.md
   - Community:
     - Contributing: contributing.md
