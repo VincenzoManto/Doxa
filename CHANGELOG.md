@@ -26,3 +26,7 @@
 - Added CI workflow for server tests
 - Added contributor onboarding files
 - Fixed issues and added features #1, #2, #3
+
+## [0.4.0]
+
+- Added `_summary()` method to `DoxaEngine` that generates a brief text summary of the last simulation using `DoxaChatbot` as an NLP engine explainer, based on the CSV of events from the simulation. This provides high-level insights into key outcomes, trends, and notable moments without needing to parse the full event history.
