@@ -28,13 +28,27 @@ from typing import Optional
 import autogen
 
 class DoxaChatbot(autogen.ConversableAgent):
+
+    def _avaiable_models(self):
+        """Returns a list of available models for the chatbot from "ollama list"."""
+        import requests
+        try:
+            response = requests.get("http://localhost:11434/v1/models")
+            response.raise_for_status()
+            models = response.json().get("models", [])
+            return [model["name"] for model in models]
+        except Exception as exc:
+            print(f"Error fetching models from Ollama: {exc}")
+            return []
+
     """
     Chatbot esterno che risponde a domande in linguaggio naturale sulla simulazione.
     Ha accesso allo YAML iniziale e a tool per estrarre dati (come export_data).
     """
     def __init__(self, engine, model: Optional[str] = None, provider: Optional[str] = None):
         self.engine = engine
-        self.model = model or "llama3.1:8b"
+        models = self._avaiable_models()
+        self.model = model or (models[0] if models else "qwen3.5:4b")
         self.provider = provider or "ollama"
         if self.provider == "ollama":
             llm_config = {
