@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "doxa-ai"
-version = "0.4.0"
+version = "0.5.0"
 description = "Doxa backend engine and CLI"
 authors = [
     { name = "VincenzoManto" }
