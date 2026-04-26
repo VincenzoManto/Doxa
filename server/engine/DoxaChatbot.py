@@ -100,6 +100,30 @@ class DoxaChatbot(autogen.ConversableAgent):
         self.register_for_llm(name="get_state", description=get_state_tool.__doc__)(get_state_tool)
         self.register_for_execution(name="get_state")(get_state_tool)
 
+    def ask(self, query: str):
+        """Ask directly completion to Ollama without tool calls, for simple questions that don't require data."""
+        if self.provider == "ollama":
+            import requests
+            try:
+                response = requests.post(
+                    f"http://localhost:11434/v1/chat/completions",
+                    json={
+                        "model": self.model,
+                        "messages": [
+                            {"role": "system", "content": self.system_message},
+                            {"role": "user", "content": query},
+                        ],
+                        "temperature": 0.2,
+                    },
+                    headers={"Authorization": f"Bearer ollama"},
+                )
+                response.raise_for_status()
+                return response.json()["choices"][0]["message"]["content"]
+            except Exception as exc:
+                return f"Error during Ollama request: {exc}"
+        else:
+            return f"Provider {self.provider} not supported for direct ask."
+
     def answer(self, query: str) -> str:
         """
         Answers a natural language question about the simulation using the available tools. Always in English.

@@ -915,7 +915,7 @@ class DoxaEngine:
 CSV:
 {self._events_csv()}
 Summary:"""
-        a = self.chatbot.answer(prompt)
+        a = self.chatbot.ask(prompt)
         return a
 
     def _agent_timeline_csv(self, agent_id: str):
