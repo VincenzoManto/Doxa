@@ -7,6 +7,9 @@ authors:
 - family-names: "Dal Cero"
   given-names: "Riccardo"
   orcid: "https://orcid.org/0009-0003-1308-0230"
+- family-names: "Bogoni"
+  given-names: "Alessia"
+  orcid: "https://orcid.org/0009-0001-3814-8110"
 title: "Doxa"
 version: 0.5.0
 doi: 10.5281/zenodo.19659522
