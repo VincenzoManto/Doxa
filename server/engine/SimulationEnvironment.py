@@ -549,22 +549,43 @@ class SimulationEnvironment:
                     # target can be already dead or never existed;
                     return f"FAILED: Target '{target_id}' not found (killed or never existed)."
                 tbefore = deepcopy(self._portfolios[target_id])
-                if target_id in self._portfolios:
-                    for r, v in op['target_impact'].items():
-                        self._portfolios[target_id][r] = self._portfolios[target_id].get(r, 0) + v * multiplier
+                t_port = self._portfolios[target_id]
+                t_constraints = {**self.global_rules.get('constraints', {}), **self._agents[target_id].constraints}
+                partial = op.get('allow_partial_target_impact', False)
+
+                for r, v in op['target_impact'].items():
+                    delta = v * multiplier
+                    new_val = t_port.get(r, 0) + delta
+                    
+                    if partial:
+                        c = t_constraints.get(r, {})
+                        c_min = c.get('min', float('-inf'))
+                        c_max = c.get('max', float('inf'))
+                        
+                        new_val = max(c_min, min(c_max, new_val))
+                    
+                    t_port[r] = new_val
+
                 if self.log:
-                    self.log.print(f"Target delta on {target_id}")
-                    self.log.print_delta(tbefore, self._portfolios[target_id])
+                    self.log.print(f"Target delta on {target_id} (partial={partial})")
+                    self.log.print_delta(tbefore, t_port)
+
             rollback = False
-            constraints = self._agents[actor_id].constraints
-            for r, c in constraints.items():
-                if port.get(r, 0) < c.get('min', float('-inf')): rollback = True
-                if port.get(r, 0) > c.get('max', float('inf')): rollback = True
-            if target_id and target_id in self._portfolios:
-                constraints = self._agents[target_id].constraints
-                for r, c in constraints.items():
-                    if self._portfolios[target_id].get(r, 0) < c.get('min', float('-inf')): rollback = True
-                    if self._portfolios[target_id].get(r, 0) > c.get('max', float('inf')): rollback = True
+            a_constraints = {**self.global_rules.get('constraints', {}), **self._agents[actor_id].constraints}
+            
+            for r, c in a_constraints.items():
+                val = port.get(r, 0)
+                if val < c.get('min', float('-inf')) or val > c.get('max', float('inf')):
+                    rollback = True
+                    break
+
+            if not partial and target_id and target_id in self._portfolios:
+                t_constraints = {**self.global_rules.get('constraints', {}), **self._agents[target_id].constraints}
+                for r, c in t_constraints.items():
+                    val = self._portfolios[target_id].get(r, 0)
+                    if val < c.get('min', float('-inf')) or val > c.get('max', float('inf')):
+                        rollback = True
+                        break
             if rollback == True:
                 self._portfolios[actor_id] = before
                 if target_id and tbefore is not None:
