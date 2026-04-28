@@ -49,6 +49,8 @@ class SimulationEnvironment:
     start of every epoch to re-initialise portfolios and agents while
     preserving RAG memories.
     """
+
+
     def __init__(self, config, log_verbose=True, rag_limit=200, logger=None):
         """Initialise the environment from *config* (the parsed YAML dict).
 
@@ -78,6 +80,7 @@ class SimulationEnvironment:
         self._rag_locks = {}
         self._rag_stats = {}
         self.rag_limit = rag_limit
+
         self._lock = threading.RLock()
         self._current_tick: int = 0
 
@@ -89,6 +92,46 @@ class SimulationEnvironment:
         self.macro_tracker: MacroTracker = MacroTracker()
         self.agent_economics_map: Dict[str, AgentEconomics] = {}
         self.price_expectations: Dict[str, Dict[str, float]] = {}  # agent_id → resource → EWA price
+
+    def _evaluate_calculated_resources(self, agent_id):
+        """Evaluate and update all calculated resources for all agents."""
+        global_calcs = self.global_rules.get('calculated_resources', {})
+        agent = self._agents[agent_id]
+        if agent is None:
+            return
+        actor_cfg = getattr(agent, 'config', {})
+        agent_calcs = actor_cfg.get('calculated_resources', {})
+        for res_name in set(global_calcs.keys()).union(agent_calcs.keys()):
+            calc_def = agent_calcs.get(res_name) or global_calcs.get(res_name)
+            if not calc_def:
+                continue
+            formula = calc_def['formula']
+            inputs = calc_def.get('inputs', {})
+            ctx = {}
+            ctx['agent_portfolio'] = self._portfolios[agent_id]
+            ctx['global_rules'] = self.global_rules
+            if hasattr(self, 'market_engine') and self.market_engine:
+                ctx['market_engine'] = self.market_engine
+            for k, v in inputs.items():
+                if isinstance(v, str) and '.' in v:
+                    parts = v.split('.')
+                    val = ctx
+                    try:
+                        for part in parts:
+                            if isinstance(val, dict):
+                                val = val[part]
+                            else:
+                                val = getattr(val, part)
+                        ctx[k] = val
+                    except Exception:
+                        ctx[k] = None
+                else:
+                    ctx[k] = ctx.get(v, v)
+            try:
+                value = eval(formula, {"__builtins__": {}}, ctx)
+            except Exception:
+                value = None
+            self._portfolios[agent_id][res_name] = value
 
     # ── backward-compat property shims ──────────────────────────────────────────────────
     # Allow code written against the old flat-attribute style to continue working.
@@ -298,6 +341,10 @@ class SimulationEnvironment:
         with self._lock:
             self._rag_stats[agent_id] = updated_stats
         return "SUCCESS: Knowledge saved to RAG."
+    
+    def step_calculated_resources(self, agent_id: str = None):
+        """Call this after each agent step and after maintenance to update calculated resources."""
+        self._evaluate_calculated_resources(agent_id)
 
     def get_agent_memory_graph(self, agent_id: str, limit: int = 80):
         import asyncio
