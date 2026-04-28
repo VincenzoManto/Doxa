@@ -21,11 +21,11 @@ When ``answer(query)`` is called, a short-lived ``UserProxyAgent``
 against the chatbot.  The proxy executes tool calls and feeds results back
 to the LLM until a final text reply is produced.
 
-Currently only the ``ollama`` provider is supported for the chatbot itself;
-the simulation agents can use any provider.
+Supported providers for the chatbot: ``ollama``, ``claude``, ``google``.
 """
 from typing import Optional
 import autogen
+from engine.agents.DoxaAgent import _resolve_secret
 
 class DoxaChatbot(autogen.ConversableAgent):
 
@@ -58,6 +58,27 @@ class DoxaChatbot(autogen.ConversableAgent):
                     "api_type": "openai",
                     "api_key": "ollama",
                     "price": [0,0]
+                }],
+                "temperature": 0.2,
+            }
+        elif self.provider == "claude":
+            claude_api_key = _resolve_secret('ANTHROPIC_API_KEY', '')
+            llm_config = {
+                "config_list": [{
+                    "model": self.model or "claude-sonnet-4-6",
+                    "api_type": "anthropic",
+                    "api_key": claude_api_key,
+                }],
+                "temperature": 0.2,
+            }
+        elif self.provider == "google":
+            google_api_key = _resolve_secret('GOOGLE_API_KEY', '')
+            llm_config = {
+                "config_list": [{
+                    "model": self.model or "gemini-2.0-flash",
+                    "api_type": "openai",
+                    "api_key": google_api_key,
+                    "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
                 }],
                 "temperature": 0.2,
             }
@@ -101,9 +122,10 @@ class DoxaChatbot(autogen.ConversableAgent):
         self.register_for_execution(name="get_state")(get_state_tool)
 
     def ask(self, query: str):
-        """Ask directly completion to Ollama without tool calls, for simple questions that don't require data."""
+        """Ask directly completion to the LLM without tool calls, for simple questions that don't require data."""
+        import requests
+
         if self.provider == "ollama":
-            import requests
             try:
                 response = requests.post(
                     f"http://localhost:11434/v1/chat/completions",
@@ -121,6 +143,42 @@ class DoxaChatbot(autogen.ConversableAgent):
                 return response.json()["choices"][0]["message"]["content"]
             except Exception as exc:
                 return f"Error during Ollama request: {exc}"
+        elif self.provider == "claude":
+            try:
+                from anthropic import Anthropic
+                claude_api_key = _resolve_secret('ANTHROPIC_API_KEY', '')
+                client = Anthropic(api_key=claude_api_key)
+                response = client.messages.create(
+                    model=self.model or "claude-sonnet-4-6",
+                    max_tokens=4096,
+                    system=self.system_message,
+                    messages=[
+                        {"role": "user", "content": query}
+                    ],
+                    temperature=0.2,
+                )
+                return response.content[0].text
+            except Exception as exc:
+                return f"Error during Claude request: {exc}"
+        elif self.provider == "google":
+            try:
+                google_api_key = _resolve_secret('GOOGLE_API_KEY', '')
+                response = requests.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                    json={
+                        "model": self.model or "gemini-2.0-flash",
+                        "messages": [
+                            {"role": "system", "content": self.system_message},
+                            {"role": "user", "content": query},
+                        ],
+                        "temperature": 0.2,
+                    },
+                    headers={"Authorization": f"Bearer {google_api_key}"},
+                )
+                response.raise_for_status()
+                return response.json()["choices"][0]["message"]["content"]
+            except Exception as exc:
+                return f"Error during Google request: {exc}"
         else:
             return f"Provider {self.provider} not supported for direct ask."
 
