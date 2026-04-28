@@ -99,6 +99,7 @@ class DoxaEngine:
         self.run_id = None
         self.event_history = []
         self.resource_history = []
+        self._manual_agent_index = 0
         self.config_source = {"kind": "embedded", "value": "config_yaml"}
         self.config_text = ""
         self._set_config(yaml_str, source_kind="embedded", source_value="config_yaml")
@@ -430,6 +431,7 @@ class DoxaEngine:
         self.current_epoch = 0
         self.current_step = 0
         self.last_error = None
+        self._manual_agent_index = 0
 
     def _next_run_id(self, prefix: str = "run"):
         self.run_sequence += 1
@@ -677,7 +679,12 @@ class DoxaEngine:
             active_agents = list(self.env.agents.keys())
             if not active_agents:
                 return self.get_status()
-            selected_agent = agent_id or active_agents[0]
+            if agent_id:
+                selected_agent = agent_id
+            else:
+                self._manual_agent_index = self._manual_agent_index % len(active_agents)
+                selected_agent = active_agents[self._manual_agent_index]
+                self._manual_agent_index += 1
             if selected_agent not in self.env.agents:
                 raise RuntimeError(f"Agent '{selected_agent}' not found.")
         if self.log:
@@ -993,6 +1000,7 @@ Summary:"""
                     self._apply_maintenance(ids)
                     active_ids = [agent_id for agent_id in ids if agent_id in self.env.agents]
                     if mode == 'sequential':
+                        step_delay = self.global_rules.get('step_delay', 0)
                         for agent_id in active_ids:
                             if self._stop_event.is_set():
                                 break
@@ -1000,6 +1008,8 @@ Summary:"""
                                 break
                             self._step_agent(agent_id)
                             self.record_snapshot("agent_step", agent_id)
+                            if step_delay > 0:
+                                time.sleep(step_delay)
                     else:
                         with ThreadPoolExecutor() as executor:
                             executor.map(self._step_agent, active_ids)
@@ -1041,7 +1051,10 @@ Summary:"""
             or "temporarily unavailable" in lowered
         )
 
-    def _generate_reply_with_retry(self, agent, a_id: str, max_attempts: int = 3, base_delay: float = 0.4):
+    def _generate_reply_with_retry(self, agent, a_id: str, max_attempts: int = 3, base_delay: float = None):
+        provider = getattr(agent, 'provider', 'ollama')
+        if base_delay is None:
+            base_delay = 2.0 if provider == 'google' else 0.4
         messages = agent.chat_messages[agent] + [{"role": "user", "content": "Your turn."}]
         for attempt in range(1, max_attempts + 1):
             try:
