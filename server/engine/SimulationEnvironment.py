@@ -536,6 +536,7 @@ class SimulationEnvironment:
             port = self._portfolios[actor_id]
             before = deepcopy(port)
             tbefore = None
+            partial = False
             try:
                 multiplier = float(multiplier)
             except Exception:
