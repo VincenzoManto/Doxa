@@ -676,26 +676,24 @@ class DoxaEngine:
             if self.current_epoch == 0:
                 self.current_epoch = 1
             self.current_step += 1
-            active_agents = list(self.env.agents.keys())
-            if not active_agents:
+            ids = list(self.env.agents.keys())
+            if not ids:
                 return self.get_status()
-            if agent_id:
-                selected_agent = agent_id
-            else:
-                self._manual_agent_index = self._manual_agent_index % len(active_agents)
-                selected_agent = active_agents[self._manual_agent_index]
-                self._manual_agent_index += 1
-            if selected_agent not in self.env.agents:
-                raise RuntimeError(f"Agent '{selected_agent}' not found.")
+            if agent_id and agent_id not in self.env.agents:
+                raise RuntimeError(f"Agent '{agent_id}' not found.")
+            active_agents = [agent_id] if agent_id else ids
         if self.log:
             self.log.print_step(self.current_step)
         self.env._current_tick = self.current_step
-        self._step_agent(selected_agent)
+        for a_id in active_agents:
+            if a_id in self.env.agents:
+                self._step_agent(a_id)
+                self.record_snapshot("agent_step", a_id)
         self._run_market_clearing()
         self._run_world_events()
         self._update_price_expectations()
         self._run_macro_step()
-        self.record_snapshot("manual_step", selected_agent)
+        self.record_snapshot("manual_step")
         return self.get_status()
 
     def _wait_if_paused(self):
