@@ -177,12 +177,12 @@ class DoxaAgent(autogen.ConversableAgent):
             }
         
         elif provider == 'claude':
+            claude_api_key = config.get('api_key') or _resolve_secret('ANTHROPIC_API_KEY', '')
             llm_config = {
                 "config_list":[{
                     "model": model or "claude-sonnet-4-6",
                     "api_type": "anthropic",
-                    "api_key": config.get('api_key',
-                    os.environ.get('ANTHROPIC_API_KEY', '')),
+                    "api_key": claude_api_key,
                     }],
                     "temperature": temperature
             }
