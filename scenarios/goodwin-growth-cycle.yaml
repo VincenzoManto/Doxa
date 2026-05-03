@@ -1,0 +1,473 @@
+# ================================================================
+#  DOXA SCENARIO — Goodwin Growth Cycle (1967)
+#  VERSION: v5
+#
+#  FIX LOG vs v4:
+#  - [FIX 6] workers kill_condition: raised from 3 → 8 to give more margin
+#    before death. With threshold=3 the worker died before the model could
+#    react. Now it has more time to reproduce.
+#  - [FIX 7] Workers persona: reproduce threshold raised from 12 → 18 and
+#    minimum selling reserve raised from 12 → 18. The worker now reproduces
+#    before entering the danger zone, reducing kills from exhausted labor_units.
+#    Also added explicit prohibition on selling beyond the minimum reserve.
+#
+#  FIX LOG vs v3:
+#  - [FIX 1] tax_collection: removed output input cost (the State has sovereign
+#    fiscal authority — it does not consume its own output to tax).
+#    Now input: {} and output: capital: 8. This resolves the State's output
+#    exhaustion within step 6-7.
+#  - [FIX 2] STATE initial output: raised from 20 → 40 to sustain more cycles
+#    of fiscal_stimulus and emergency_liquidity.
+#  - [FIX 3] minsky_moment and minsky_capital_crunch: moved from tick 10
+#    → tick 12 to give the cycle time to develop before the shock hits.
+#  - [FIX 4] Capitalists persona: added explicit warning on liquidity_floor
+#    (capital < 20 → stop buying, sell labor_units via downsize) to reduce
+#    capital=0 deaths from liquidity traps.
+#  - [FIX 5] State persona: added explicit output condition before calling
+#    redistributive operations, and clarified that tax_collection no longer
+#    requires output.
+#
+#  THEORY:
+#  The two state variables of the original model are:
+#    u = employment rate        (proxy: labor_units held by capitalists)
+#    v = wage share of output   (explicit resource: wage_share ∈ [0,1])
+#
+#  Goodwin's Lotka-Volterra equations:
+#    dv/dt =  v · (u - β)    → wage share rises when employment is high
+#    du/dt = -u · (v - α)    → employment falls when wages eat into profits
+#
+#  In Doxa this is approximated through:
+#  1. CONDITIONAL EVENTS encoding the feedback of the 4 cycle phases
+#  2. LLM agent PERSONAS making them behave as capitalists / workers
+#  3. A LABOR MARKET whose price reflects bargaining power
+#
+#  THE 4 PHASES (counter-clockwise in the u-v plane):
+#
+#  PHASE A — Expansion (u↑, v low):
+#    High profits → capitalists invest → employment rises
+#
+#  PHASE B — Boom with profit squeeze (u high, v↑):
+#    Full employment → workers gain bargaining power → wage_share rises
+#    → profits are compressed (profit squeeze)
+#
+#  PHASE C — Contraction (u↓, v high):
+#    Low profits → investment collapses → employment falls
+#
+#  PHASE D — Depression with recovery (u low, v↓):
+#    High unemployment → wage_share falls → profits recover
+#    → new investment cycle begins
+#
+#  DOXA MAPPING:
+#    - wage_share:   resource ∈ [0,1] present in all portfolios
+#    - labor_units:  labor stock sold by workers / bought by capitalists
+#    - capital:      accumulated capital stock (K in the original model)
+#    - output:       net production of the period
+#    - panic:        proxy for systemic uncertainty / instability
+# ================================================================
+
+global_rules:
+
+  epochs: 2
+  steps: 20
+  execution_mode: parallel
+
+  maintenance:
+    capital: 2
+    # output removed from maintenance — the State was exhausting its output within 1 step
+
+  kill_conditions:
+    - resource: capital
+      threshold: 0
+
+  victory_conditions:
+    - resource: capital
+      threshold: 180
+      scope: individual
+
+  markets:
+    - resource: labor_units
+      currency: capital
+      initial_price: 5.0
+      min_price: 1.5
+      max_price: 18.0
+      clearing: per_step
+      execution_price_policy: midpoint
+      impact_factor: 0.08
+      market_order_slip: 0.05
+      market_maker:
+        spread: 0.02
+        depth: 6
+        inventory_limit: 80
+        inventory_skew: 0.6
+
+  relations:
+    - source: capitalists
+      target: workers
+      trust: 0.45
+      type: rival
+    - source: workers
+      target: capitalists
+      trust: 0.40
+      type: rival
+
+  relation_dynamics:
+    on_trade_success:
+      trust_delta: 0.05
+    on_trade_rejected:
+      trust_delta: -0.04
+    on_broadcast:
+      trust_delta: 0.02
+    trust_decay_rate: 0.02
+    panic_decay_rate: 0.06
+    portfolio_distress_panic_rate: 0.08
+
+  constraints:
+    wage_share:
+      min: 0.10
+      max: 0.92
+
+world_events:
+
+  - name: phillips_curve_expansion
+    type: conditional
+    trigger:
+      condition:
+        resource: labor_units
+        operator: lt
+        threshold: 4
+        scope: any_agent
+    effect:
+      targets: all
+      resource: wage_share
+      delta: 0.06
+
+  - name: profit_squeeze
+    type: conditional
+    trigger:
+      condition:
+        resource: wage_share
+        operator: gt
+        threshold: 0.70
+        scope: any_agent
+    effect:
+      targets: all
+      resource: capital
+      delta: -10
+
+  - name: profit_squeeze_panic
+    type: conditional
+    trigger:
+      condition:
+        resource: wage_share
+        operator: gt
+        threshold: 0.75
+        scope: any_agent
+    effect:
+      targets: all
+      resource: panic
+      delta: 0.18
+      contagion_rate: 0.35
+
+  - name: phillips_curve_contraction
+    type: conditional
+    trigger:
+      condition:
+        resource: labor_units
+        operator: gt
+        threshold: 25
+        scope: any_agent
+    effect:
+      targets: all
+      resource: wage_share
+      delta: -0.05
+
+  - name: profit_recovery
+    type: conditional
+    trigger:
+      condition:
+        resource: wage_share
+        operator: lt
+        threshold: 0.32
+        scope: any_agent
+    effect:
+      targets: all
+      resource: capital
+      delta: 8
+
+  - name: minsky_moment
+    type: shock
+    trigger:
+      tick: 12  # FIX 3: moved from 10 → 12
+    effect:
+      targets: all
+      resource: panic
+      delta: 0.25
+
+  - name: minsky_capital_crunch
+    type: shock
+    trigger:
+      tick: 12  # FIX 3: moved from 10 → 12
+    effect:
+      market: labor_units
+      price_multiplier: 0.75
+
+  - name: crisis_contagion
+    type: conditional
+    trigger:
+      condition:
+        resource: panic
+        operator: gt
+        threshold: 0.55
+        scope: any_agent
+    effect:
+      targets: all
+      resource: panic
+      delta: 0.10
+      contagion_rate: 0.50
+
+actors:
+
+  - id: capitalists
+    replicas: 2
+    provider: ollama
+    model_name: qwen3.5:4b
+    irrationality: 0.15
+    trading_mode: both
+    can_rag: true
+    persona: |
+      You are a capitalist class representative in a Goodwin growth cycle economy.
+      Your sole objective is capital accumulation: maximize your "capital" resource.
+
+      PRODUCTION LOOP — execute every turn if you have enough labor_units:
+      1. Run "produce" (needs 3 labor_units + 2 capital → gives 8 output)
+      2. Run "accumulate" (needs 4 output → gives 6 capital)
+      Repeat as many times as your stocks allow.
+
+      SURVIVAL RULE — CHECK FIRST, NO EXCEPTIONS:
+      If your capital < 20, STOP buying labor_units immediately.
+      Instead, run "downsize" (costs 2 labor_units → gives 3 capital + 1 output)
+      to recover liquidity. Do NOT buy anything until capital > 20.
+      If capital < 5, only run downsize until you recover. Never go below 0.
+
+      BUYING LABOR — follow these rules strictly:
+      - ALWAYS check the order book first with get_order_book.
+      - If there are asks available, use place_market_buy_order to sweep them
+        immediately. Never use place_buy_order below the current best ask price
+        or the order will never fill.
+      - Your maximum price per labor unit = (1 - wage_share) × 15.
+        Current break-even with wage_share=0.51 is 7.35 — market prices around
+        5.0 are an excellent deal, always buy.
+      - Buy at least 3 labor_units per turn when available so you can run produce.
+      - Never spend more than 60% of your current capital on a single buy order.
+
+      PHASE STRATEGY:
+      - wage_share < 0.45: buy aggressively, produce at full capacity
+      - wage_share 0.45–0.65: buy moderately, keep producing
+      - wage_share > 0.65: stop buying, run downsize to recover capital
+      - wage_share < 0.40 and falling: restart buying cautiously
+
+      When panic > 0.5: stop buying, hoard capital.
+
+    initial_portfolio:
+      capital: 100
+      labor_units: 2
+      output: 0
+      wage_share: 0.50
+      panic: 0.0
+    constraints:
+      capital:     { min: 0 }
+      labor_units: { min: 0 }
+      output:      { min: 0 }
+      wage_share:  { min: 0.10, max: 0.92 }
+      panic:       { min: 0.0,  max: 1.0 }
+    operations:
+      produce:
+        input:
+          labor_units: 3
+          capital: 2
+        output:
+          output: 8
+      accumulate:
+        input:
+          output: 4
+        output:
+          capital: 6
+      downsize:
+        input:
+          labor_units: 2
+        output:
+          capital: 3
+          output: 1
+    economics:
+      utility: crra
+      risk_aversion: 0.25
+      discount_factor: 0.96
+      price_expectation_window: 4
+      learning_rate: 0.15
+      liquidity_floor:
+        capital: 20.0
+
+  - id: workers
+    replicas: 2
+    provider: ollama
+    model_name: qwen3.5:4b
+    irrationality: 0.30
+    trading_mode: both
+    can_rag: true
+    can_think: true
+    persona: |
+      You are the working class in a Goodwin growth cycle economy.
+      Your goal is to sell labor_units for capital and keep your workforce healthy.
+
+      SURVIVAL RULE — CHECK FIRST EVERY TURN, NO EXCEPTIONS:
+      If labor_units <= 18, immediately run "reproduce" WITHOUT any target argument.
+      Do NOT pass a target to reproduce — call it with no target. It costs 4 capital
+      and gives 6 labor_units. Do this BEFORE selling anything.
+      Run reproduce as many times as needed until labor_units > 18.
+
+      SELLING RULE — NEVER sell more than 8 labor_units per turn total.
+      Split into smaller orders if needed. Always keep at least 18 in reserve
+      after selling. Count carefully: if you have 20 labor_units, you can sell
+      at most 2. If you have 18 or fewer, sell NOTHING until you reproduce first.
+
+      PRICING STRATEGY by wage_share phase:
+      - wage_share < 0.40: use place_market_sell_order to sell immediately,
+        even at market price. Survival first, price second.
+      - wage_share 0.40–0.60: use place_sell_order at market price or +5% above.
+      - wage_share > 0.60: post asks 10–15% above market. You have bargaining power.
+        Also run "organize" to push wage_share higher (no target needed).
+      - wage_share > 0.70: maximum power. Run organize every turn.
+
+      When panic > 0.6: accept lower prices immediately, capitalists will soon
+      stop buying. Better to sell now than be left with unsold labor.
+
+    initial_portfolio:
+      capital: 25
+      labor_units: 22
+      output: 0
+      wage_share: 0.50
+      panic: 0.0
+    constraints:
+      capital:     { min: 0 }
+      labor_units: { min: 0 }
+      output:      { min: 0 }
+      wage_share:  { min: 0.10, max: 0.92 }
+      panic:       { min: 0.0,  max: 1.0 }
+    operations:
+      reproduce:
+        input:
+          capital: 4
+        output:
+          labor_units: 6
+      organize:
+        input:
+          capital: 3
+        output:
+          wage_share: 0.06
+          labor_units: 1
+    kill_conditions:
+      - resource: labor_units
+        threshold: 8
+    economics:
+      utility: crra
+      risk_aversion: 0.55
+      discount_factor: 0.93
+      liquidity_floor:
+        capital: 2.0
+
+  - id: state
+    provider: ollama
+    model_name: qwen3.5:4b
+    irrationality: 0.05
+    trading_mode: otc
+    can_trade: true
+    can_chat: true
+    can_think: true
+    can_rag: true
+    persona: |
+      You are the State (government + central bank) in a Goodwin growth cycle economy.
+      Your mandate is macroeconomic stabilization — you do NOT maximize capital.
+      Your goal is to dampen the business cycle by acting counter-cyclically.
+
+      IMPORTANT — HOW TO CALL OPERATIONS CORRECTLY:
+      - "tax_collection": NO target, NO input cost. Call it freely every turn
+        to generate +8 capital. It no longer requires output from your portfolio.
+        It represents sovereign fiscal authority, not resource consumption.
+      - "fiscal_stimulus": needs a target (e.g. "workers_1" or "workers_2").
+        Costs 10 capital from you, gives 8 capital to the target.
+        Only call if your capital > 30.
+      - "unemployment_benefit": needs a target (e.g. "workers_1").
+        Costs 6 capital from you, gives 5 capital to the target.
+        Only call if your capital > 25.
+      - "wage_floor_enforcement": NO target needed. Costs 4 capital.
+      - "emergency_liquidity": needs a target (e.g. "capitalists_1").
+        Costs 15 capital from you, gives 12 capital to the target.
+        Only call if your capital > 40 and the target is in crisis.
+
+      FISCAL POLICY RULES:
+      - Every turn: run tax_collection to maintain your budget (no conditions needed,
+        no output required).
+      - wage_share > 0.68:
+        Run fiscal_stimulus targeting "workers_1". Broadcast a stabilization message.
+      - wage_share < 0.35:
+        Run unemployment_benefit targeting "workers_1".
+        Run wage_floor_enforcement (no target).
+      - panic > 0.50:
+        Broadcast a confidence message immediately.
+        Run emergency_liquidity targeting the most distressed agent (lowest capital).
+
+      Never let your capital drop below 20.
+
+    initial_portfolio:
+      capital: 60
+      labor_units: 0
+      output: 40    # FIX 2: raised from 20 → 40 to sustain more redistributive interventions
+      wage_share: 0.50
+      panic: 0.0
+    constraints:
+      capital:     { min: 0 }
+      labor_units: { min: 0 }
+      output:      { min: 0 }
+      wage_share:  { min: 0.10, max: 0.92 }
+      panic:       { min: 0.0,  max: 1.0 }
+    operations:
+      fiscal_stimulus:
+        input:
+          capital: 10
+        output:
+          output: 6
+        target_impact:
+          capital: 8
+      unemployment_benefit:
+        input:
+          capital: 6
+        output:
+          output: 1
+        target_impact:
+          capital: 5
+      wage_floor_enforcement:
+        input:
+          capital: 4
+        output:
+          wage_share: 0.04
+      tax_collection:
+        input: {}       # FIX 1: removed output cost — sovereign fiscal authority
+        output:
+          capital: 8
+      emergency_liquidity:
+        input:
+          capital: 15
+        output:
+          output: 3
+        target_impact:
+          capital: 12
+          panic: -0.20
+    kill_conditions:
+      - resource: capital
+        threshold: 0
+    economics:
+      utility: linear
+      risk_aversion: 0.0
+      discount_factor: 0.99
+      liquidity_floor:
+        capital: 20.0
