@@ -60,11 +60,33 @@ import uuid
 import zipfile
 from copy import deepcopy
 from typing import List, Dict, Optional
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeoutError
 from typing import Optional
 
 from engine.DoxaChatbot import DoxaChatbot
 from engine.SimulationEnvironment import SimulationEnvironment
+
+
+def _order_as_dict(order) -> dict:
+    return {
+        "id": order.id, "arrival_seq": order.arrival_seq, "side": order.side,
+        "agent_id": order.agent_id, "resource": order.resource, "currency": order.currency,
+        "quantity": order.quantity, "price": order.price, "filled": order.filled,
+        "status": order.status, "created_tick": order.created_tick,
+        "ttl": order.ttl, "order_type": order.order_type,
+    }
+
+
+def _dict_to_order(d: dict):
+    from market.Order import Order
+    return Order(
+        id=d["id"], arrival_seq=d["arrival_seq"], side=d["side"],
+        agent_id=d["agent_id"], resource=d["resource"], currency=d["currency"],
+        quantity=d["quantity"], price=d["price"], filled=d.get("filled", 0.0),
+        status=d.get("status", "open"), created_tick=d.get("created_tick", 0),
+        ttl=d.get("ttl", -1), order_type=d.get("order_type", "limit"),
+    )
+
 
 class DoxaEngine:
     """Top-level simulation orchestrator.  One instance manages one YAML config."""
@@ -318,6 +340,18 @@ class DoxaEngine:
                     _v = mm_cfg.get(_mk)
                     if _v is not None and (not isinstance(_v, (int, float)) or float(_v) < 0):
                         raise ValueError(f"Market '{resource_name}'.market_maker.{_mk} must be a non-negative number.")
+
+        tts = global_rules.get("turn_timeout_seconds")
+        if tts is not None:
+            if not isinstance(tts, (int, float)) or float(tts) <= 0:
+                raise ValueError("global_rules.turn_timeout_seconds must be a positive number.")
+
+        if global_rules.get("checkpoint") not in (None, True, False):
+            raise ValueError("global_rules.checkpoint must be a boolean.")
+        if global_rules.get("checkpoint_path") is not None and not isinstance(global_rules["checkpoint_path"], str):
+            raise ValueError("global_rules.checkpoint_path must be a string path.")
+        if global_rules.get("resume_from") is not None and not isinstance(global_rules["resume_from"], str):
+            raise ValueError("global_rules.resume_from must be a string path.")
 
         for event in config.get("world_events", []):
             if not isinstance(event, dict) or not event.get("name"):
@@ -973,6 +1007,18 @@ Summary:"""
             epochs = self.global_rules.get('epochs', 1)
             steps = self.global_rules.get('steps', 5)
             mode = self.global_rules.get('execution_mode', 'sequential')
+            _do_checkpoint = bool(self.global_rules.get('checkpoint'))
+            _resume_epoch = 0
+            _resume_step = 0
+            _resume_cp = None
+            _resume_path = self.global_rules.get('resume_from')
+            if _resume_path:
+                _resume_cp = self._load_checkpoint_file(_resume_path)
+                _resume_epoch = _resume_cp['epoch']
+                _resume_step = _resume_cp['step']
+                self.record_event({"type": "checkpoint_resumed", "path": str(_resume_path), "epoch": _resume_epoch, "step": _resume_step})
+                if self.log:
+                    self.log.print_action("engine", "checkpoint_resumed", None, f"[CHECKPOINT] Resuming from {_resume_path} (epoch={_resume_epoch}, step={_resume_step})")
             for epoch_index in range(epochs):
                 if self._stop_event.is_set():
                     break
@@ -980,7 +1026,12 @@ Summary:"""
                     break
                 self.current_epoch = epoch_index + 1
                 self.current_step = 0
+                if self.current_epoch < _resume_epoch:
+                    continue
                 self.env.reset(self.raw_config['actors'])
+                if _resume_cp is not None and self.current_epoch == _resume_epoch:
+                    self._apply_checkpoint(_resume_cp)
+                    _resume_cp = None
                 if self.log:
                     self.log.print_epoch(self.current_epoch)
                 self.record_snapshot("epoch_start")
@@ -991,6 +1042,8 @@ Summary:"""
                         break
                     self.current_step = step_index + 1
                     self.env._current_tick = self.current_step
+                    if self.current_epoch == _resume_epoch and self.current_step <= _resume_step:
+                        continue
                     if self.log:
                         self.log.print_step(self.current_step)
                     ids = list(self.env.agents.keys())
@@ -1019,6 +1072,8 @@ Summary:"""
                     # Price expectations + macro metrics
                     self._update_price_expectations()
                     self._run_macro_step()
+                    if _do_checkpoint:
+                        self._save_checkpoint()
                 for agent_id in list(self.env.agents.keys()):
                     self.check_victory_conditions(agent_id)
             with self._state_lock:
@@ -1035,6 +1090,122 @@ Summary:"""
                 self._run_thread = None
                 self._stop_event.clear()
                 self._pause_event.set()
+
+    # ── Checkpoint / resume ──────────────────────────────────────────────────
+
+    def _save_checkpoint(self):
+        import json, os
+        cp_dir = self.global_rules.get('checkpoint_path', './checkpoints/')
+        os.makedirs(cp_dir, exist_ok=True)
+        scenario = self.raw_config.get('scenario', 'simulation')
+        safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in str(scenario))
+        filename = f"{safe}_ep{self.current_epoch}_step{self.current_step:04d}.json"
+        path = os.path.join(cp_dir, filename)
+        with open(path, 'w', encoding='utf-8') as fh:
+            json.dump(self._build_checkpoint_dict(), fh, indent=2, default=str)
+        self.record_event({"type": "checkpoint_saved", "path": path, "epoch": self.current_epoch, "step": self.current_step})
+        if self.log:
+            self.log.print_action("engine", "checkpoint_saved", None, f"[CHECKPOINT] Saved → {path}")
+        return path
+
+    def _build_checkpoint_dict(self) -> dict:
+        from datetime import datetime, timezone
+        cp = {
+            "schema_version": 1,
+            "scenario": self.raw_config.get('scenario', 'simulation'),
+            "run_id": self.run_id,
+            "run_sequence": self.run_sequence,
+            "epoch": self.current_epoch,
+            "step": self.current_step,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "portfolios": deepcopy(self.env.portfolios),
+            "price_expectations": deepcopy(self.env.price_expectations),
+            "pending_trades": deepcopy(self.env.pending_trades),
+            "trade_counter": self.env.trade_counter,
+            "current_tick": self.env._current_tick,
+            "relation_graph": self.env.relation_graph.to_list(),
+            "agent_alive": list(self.env.agents.keys()),
+            "macro_history": deepcopy(self.env.macro_tracker.history) if self.env.macro_tracker else [],
+            "event_history": list(self.event_history),
+            "resource_history": list(self.resource_history),
+            "market_state": {},
+            "market_order_counter": 1,
+            "event_defs_state": [],
+        }
+        if self.env.market_engine:
+            me = self.env.market_engine
+            cp["market_order_counter"] = me._order_counter
+            for resource, market in me.markets.items():
+                cp["market_state"][resource] = {
+                    "current_price": market.current_price,
+                    "price_history": list(market.price_history),
+                    "bids": [_order_as_dict(o) for o in market.bids],
+                    "asks": [_order_as_dict(o) for o in market.asks],
+                }
+        if self.env.event_scheduler:
+            cp["event_defs_state"] = [
+                {"name": ev.name, "triggered": ev.triggered, "remaining": ev.remaining}
+                for ev in self.env.event_scheduler._defs
+            ]
+        return cp
+
+    def _load_checkpoint_file(self, path: str) -> dict:
+        import json
+        with open(path, 'r', encoding='utf-8') as fh:
+            return json.load(fh)
+
+    def _apply_checkpoint(self, cp: dict):
+        from relations.RelationRecord import RelationRecord
+        env = self.env
+        self.run_id = cp.get("run_id", self.run_id)
+        # Portfolios
+        env._portfolios.clear()
+        env._portfolios.update(deepcopy(cp["portfolios"]))
+        # Price expectations
+        env.price_expectations.clear()
+        env.price_expectations.update(deepcopy(cp.get("price_expectations", {})))
+        # Pending trades
+        env._pending_trades.clear()
+        env._pending_trades.update(deepcopy(cp.get("pending_trades", {})))
+        env.trade_counter = cp.get("trade_counter", env.trade_counter)
+        # Relation graph
+        env.relation_graph._matrix.clear()
+        for r in cp.get("relation_graph", []):
+            env.relation_graph._matrix[(r["source"], r["target"])] = RelationRecord(
+                source=r["source"], target=r["target"], trust=r["trust"], rel_type=r["type"],
+            )
+        # Market state
+        if env.market_engine and cp.get("market_state"):
+            me = env.market_engine
+            me._order_counter = cp.get("market_order_counter", me._order_counter)
+            me._order_index.clear()
+            for resource, mstate in cp["market_state"].items():
+                if resource in me.markets:
+                    m = me.markets[resource]
+                    m.current_price = mstate["current_price"]
+                    m.price_history = [tuple(ph) for ph in mstate["price_history"]]
+                    m.bids = [_dict_to_order(od) for od in mstate.get("bids", [])]
+                    m.asks = [_dict_to_order(od) for od in mstate.get("asks", [])]
+                    for o in m.bids + m.asks:
+                        me._order_index[o.id] = o
+        # Macro history
+        if env.macro_tracker:
+            env.macro_tracker.history = list(cp.get("macro_history", []))
+        # Event scheduler state (triggered / remaining flags only)
+        if env.event_scheduler and cp.get("event_defs_state"):
+            state_by_name = {s["name"]: s for s in cp["event_defs_state"]}
+            for ev in env.event_scheduler._defs:
+                if ev.name in state_by_name:
+                    s = state_by_name[ev.name]
+                    ev.triggered = s.get("triggered", ev.triggered)
+                    ev.remaining = s.get("remaining", ev.remaining)
+        # Remove agents that had died before the checkpoint
+        alive_ids = set(cp.get("agent_alive", []))
+        for a_id in [k for k in list(env.agents.keys()) if k not in alive_ids]:
+            env.agents.pop(a_id, None)
+        # Restore history
+        self.event_history = list(cp.get("event_history", []))
+        self.resource_history = list(cp.get("resource_history", []))
 
     def _is_transient_llm_error(self, message: str) -> bool:
         lowered = message.lower()
@@ -1098,7 +1269,20 @@ Summary:"""
         if self.log:
             self.log.print_turn(a_id)
         agent = self.env.agents[a_id]
-        reply = self._generate_reply_with_retry(agent, a_id)
+        turn_timeout = self.global_rules.get('turn_timeout_seconds')
+        if turn_timeout:
+            with ThreadPoolExecutor(max_workers=1) as _ex:
+                _fut = _ex.submit(self._generate_reply_with_retry, agent, a_id)
+                try:
+                    reply = _fut.result(timeout=float(turn_timeout))
+                except _FuturesTimeoutError:
+                    warn = f"Agent {a_id} timed out after {turn_timeout}s — turn skipped"
+                    if self.log:
+                        self.log.print_action(a_id, "turn_timeout", None, f"[WARN] {warn}")
+                    self.record_event({"type": "turn_timeout", "agent": a_id, "timeout_seconds": turn_timeout, "text": warn})
+                    return
+        else:
+            reply = self._generate_reply_with_retry(agent, a_id)
         if reply is None:
             return
         if isinstance(reply, dict) and "tool_calls" in reply:
