@@ -16,12 +16,18 @@ def main():
 @click.option("--poll-interval", default=0.5, show_default=True, type=float, help="Status polling interval in seconds.")
 @click.option("--quiet", is_flag=True, help="Disable verbose simulation logs.")
 @click.option("--summary", is_flag=True, help="Generate a summary of the simulation.")
-def run(scenario_path: Path, poll_interval: float, quiet: bool, summary: bool):
+@click.option("--resume-from", default=None, type=click.Path(exists=True, dir_okay=False), help="Path to a checkpoint JSON file to resume from.")
+def run(scenario_path: Path, poll_interval: float, quiet: bool, summary: bool, resume_from: str):
     """Run a Doxa YAML scenario until completion."""
     yaml_text = scenario_path.read_text(encoding="utf-8")
     engine = DoxaEngine(yaml_text, log_verbose=not quiet)
 
+    if resume_from:
+        engine.global_rules['resume_from'] = resume_from
+
     click.echo(f"Running scenario: {scenario_path}")
+    if resume_from:
+        click.echo(f"Resuming from checkpoint: {resume_from}")
     engine.start_run()
 
     while True:
