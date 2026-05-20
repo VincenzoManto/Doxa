@@ -1097,8 +1097,8 @@ Summary:"""
         import json, os
         cp_dir = self.global_rules.get('checkpoint_path', './checkpoints/')
         os.makedirs(cp_dir, exist_ok=True)
-        scenario = self.raw_config.get('scenario', 'simulation')
-        safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in str(scenario))
+        scenario = os.path.splitext(os.path.basename(str(self.config_source.get('value', 'simulation'))))[0]
+        safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in scenario)
         filename = f"{safe}_ep{self.current_epoch}_step{self.current_step:04d}.json"
         path = os.path.join(cp_dir, filename)
         with open(path, 'w', encoding='utf-8') as fh:
