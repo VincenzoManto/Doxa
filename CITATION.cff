@@ -10,6 +10,8 @@ authors:
 - family-names: "Bogoni"
   given-names: "Alessia"
   orcid: "https://orcid.org/0009-0001-3814-8110"
+- family-names: "Alessandrini"
+  given-names: "Matteo"
 title: "Doxa"
 version: 0.6.0
 doi: 10.5281/zenodo.19659522
