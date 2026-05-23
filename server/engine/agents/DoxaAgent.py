@@ -580,10 +580,30 @@ OTHERS: {other_agents}
                 return "FAILED: No RAG memory for this agent."
             import asyncio
             async def do_query():
-                results = await memory.query(query, k=top_k)
-                if not results:
-                    return "No relevant knowledge found."
-                return "\n".join([f"[{i+1}] {mc.content}" for i, mc in enumerate(results)])
+                try:
+                    results = await memory.query(query, k=top_k)
+                    if not results:
+                        return "No relevant knowledge found."
+                    return "\n".join([f"[{i+1}] {mc.content}" for i, mc in enumerate(results)])
+                except TypeError as exc:
+                    # ChromaDB >=1.x no longer accepts `k` on Collection.query.
+                    if "unexpected keyword argument 'k'" not in str(exc):
+                        raise
+
+                    collection = getattr(memory, "_collection", None)
+                    if collection is None:
+                        raise
+
+                    raw = collection.query(query_texts=[query], n_results=max(1, int(top_k)))
+                    docs = []
+                    if isinstance(raw, dict):
+                        documents = raw.get("documents")
+                        if documents and isinstance(documents, list) and documents[0]:
+                            docs = [str(d) for d in documents[0] if d is not None]
+
+                    if not docs:
+                        return "No relevant knowledge found."
+                    return "\n".join([f"[{i+1}] {doc}" for i, doc in enumerate(docs)])
             try:
                 loop = asyncio.get_event_loop()
             except RuntimeError:
