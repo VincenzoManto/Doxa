@@ -9,8 +9,13 @@ Metrics captured
   Herfindahl-Hirschman Index (HHI) across all agent portfolios.
 * **Market price volatility** \u2014 rolling standard deviation over the last
   30 price-history entries for each configured market.
-* **System panic** \u2014 mean ``panic`` resource value across all agents
-  (a proxy for collective distress).
+* **System panic** \u2014 mean value of the configured *panic resource*
+  across all agents (a proxy for collective distress). Defaults to the
+  resource literally named ``panic``, but any scenario can point this at
+  a differently-named bounded resource via ``global_rules.panic_resource``
+  (e.g. ``relapse_risk`` in a clinical/behavioral-health scenario) without
+  losing this metric. The output key is always ``system_panic`` regardless
+  of the underlying resource name, so API/frontend consumers don't change.
 
 History is capped at the 500 most recent snapshots to bound memory use.
 """
@@ -31,8 +36,19 @@ class MacroTracker:
         3. ``latest()`` / ``history`` are exposed via the API.
     """
 
-    def __init__(self):
+    def __init__(self, panic_resource: str = "panic"):
+        """
+        Args:
+            panic_resource: Name of the bounded [0,1]-style resource treated
+                as "system panic" for the ``system_panic`` aggregate metric.
+                Defaults to ``"panic"`` for backward compatibility with
+                existing scenarios (e.g. goodwin-growth-cycle.yaml,
+                info-diffusion.yaml). Scenarios in other domains can set
+                ``global_rules.panic_resource`` to reuse this metric under
+                a domain-appropriate name.
+        """
         self.history: List[Dict] = []  # Rolling list of per-tick snapshots (max 500)
+        self.panic_resource = panic_resource
 
     def reset(self):
         """Clear history at the start of a new epoch."""
@@ -94,11 +110,13 @@ class MacroTracker:
                 }
         snap["market_stats"] = market_stats
 
-        # ── 3. System-wide panic (mean across agents that hold a panic resource) ──
+        # ── 3. System-wide panic (mean across agents that hold the configured
+        #        panic_resource, "panic" by default — see __init__ docstring) ──
+        pr = self.panic_resource
         panic_vals = [
-            p.get("panic", 0.0)
+            p.get(pr, 0.0)
             for p in portfolios.values()
-            if "panic" in p and isinstance(p["panic"], (int, float))
+            if pr in p and isinstance(p[pr], (int, float))
         ]
         snap["system_panic"] = round(sum(panic_vals) / len(panic_vals), 4) if panic_vals else 0.0
 

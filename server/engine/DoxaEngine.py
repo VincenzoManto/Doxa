@@ -754,6 +754,11 @@ class DoxaEngine:
         rel_dyn = self.global_rules.get("relation_dynamics", {})
         trust_decay = rel_dyn.get("trust_decay_rate", 0.0)
         panic_decay = rel_dyn.get("panic_decay_rate", 0.0)
+        # Resource name treated as "panic" by the built-in decay / portfolio-
+        # distress feedback below. Defaults to "panic" (backward compatible);
+        # non-economic scenarios can point this at e.g. "relapse_risk" via
+        # global_rules.panic_resource without losing this machinery.
+        panic_resource = self.global_rules.get("panic_resource", "panic")
 
         # Hold the shared environment lock for the entire maintenance pass so that
         # portfolio mutations are visible atomically to any agent threads that
@@ -765,9 +770,9 @@ class DoxaEngine:
                 for resource_name, amount in maintenance.items():
                     self.env.portfolios[agent_id][resource_name] = self.env.portfolios[agent_id].get(resource_name, 0) - amount
                 # Decay panic resource toward 0 (clamp at 0)
-                if panic_decay and "panic" in self.env.portfolios[agent_id]:
-                    current_panic = self.env.portfolios[agent_id]["panic"]
-                    self.env.portfolios[agent_id]["panic"] = max(0.0, current_panic - panic_decay)
+                if panic_decay and panic_resource in self.env.portfolios[agent_id]:
+                    current_panic = self.env.portfolios[agent_id][panic_resource]
+                    self.env.portfolios[agent_id][panic_resource] = max(0.0, current_panic - panic_decay)
                 # Portfolio distress → panic feedback
                 distress_rate = rel_dyn.get("portfolio_distress_panic_rate", 0.0)
                 if distress_rate > 0.0 and self.resource_history:
@@ -779,8 +784,8 @@ class DoxaEngine:
                         if prev_total > 0:
                             drop = (prev_total - curr_total) / prev_total
                             if drop > 0:
-                                self.env.portfolios[agent_id]["panic"] = (
-                                    self.env.portfolios[agent_id].get("panic", 0.0)
+                                self.env.portfolios[agent_id][panic_resource] = (
+                                    self.env.portfolios[agent_id].get(panic_resource, 0.0)
                                     + drop * distress_rate
                                 )
                 kill_conds = self.global_rules.get("kill_conditions", []) + self.env.agents[agent_id].config.get("kill_conditions", [])
