@@ -379,6 +379,32 @@ class DoxaEngine:
 
         initial_totals = {}
         initial_individual_max = {}
+            # Validate global calculated_resources
+        calc_resources = config.get('global_rules', {}).get('calculated_resources', {})
+        if calc_resources:
+            if not isinstance(calc_resources, dict):
+                raise ValueError("global_rules.calculated_resources must be a mapping.")
+            for res_name, res_def in calc_resources.items():
+                if not isinstance(res_def, dict):
+                    raise ValueError(f"calculated_resources.{res_name} must be a mapping.")
+                if 'formula' not in res_def or not isinstance(res_def['formula'], str):
+                    raise ValueError(f"calculated_resources.{res_name} must have a string 'formula'.")
+                if 'inputs' in res_def and not isinstance(res_def['inputs'], dict):
+                    raise ValueError(f"calculated_resources.{res_name}.inputs must be a mapping if present.")
+
+        # Validate per-actor calculated_resources
+        for actor in config["actors"]:
+            calc_resources = actor.get('calculated_resources', {})
+            if calc_resources:
+                if not isinstance(calc_resources, dict):
+                    raise ValueError(f"actors.{actor['id']}.calculated_resources must be a mapping.")
+                for res_name, res_def in calc_resources.items():
+                    if not isinstance(res_def, dict):
+                        raise ValueError(f"actors.{actor['id']}.calculated_resources.{res_name} must be a mapping.")
+                    if 'formula' not in res_def or not isinstance(res_def['formula'], str):
+                        raise ValueError(f"actors.{actor['id']}.calculated_resources.{res_name} must have a string 'formula'.")
+                    if 'inputs' in res_def and not isinstance(res_def['inputs'], dict):
+                        raise ValueError(f"actors.{actor['id']}.calculated_resources.{res_name}.inputs must be a mapping if present.")
         for actor in config["actors"]:
             replicas = actor.get("replicas", 1)
             for resource_name, amount in actor["initial_portfolio"].items():
@@ -722,6 +748,7 @@ class DoxaEngine:
         for a_id in active_agents:
             if a_id in self.env.agents:
                 self._step_agent(a_id)
+                self.env.step_calculated_resources(a_id)
                 self.record_snapshot("agent_step", a_id)
         self._run_market_clearing()
         self._run_world_events()
@@ -729,7 +756,7 @@ class DoxaEngine:
         self._run_macro_step()
         self.record_snapshot("manual_step")
         return self.get_status()
-
+    
     def _wait_if_paused(self):
         while not self._pause_event.is_set():
             if self._stop_event.is_set():
