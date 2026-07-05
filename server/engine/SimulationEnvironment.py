@@ -89,7 +89,13 @@ class SimulationEnvironment:
         self.market_engine: Optional[MarketEngine] = self._build_market_engine()
         self.event_scheduler: Optional[WorldEventScheduler] = self._build_event_scheduler()
         # Macro and agent-economics subsystems (no reset required until reset() is called)
-        self.macro_tracker: MacroTracker = MacroTracker()
+        # panic_resource lets non-economic scenarios (e.g. clinical/behavioral-health)
+        # reuse the panic_decay / portfolio_distress_panic_rate / system_panic
+        # machinery under a domain-appropriate resource name. Defaults to "panic"
+        # so every existing scenario is unaffected.
+        self.macro_tracker: MacroTracker = MacroTracker(
+            panic_resource=self.global_rules.get("panic_resource", "panic")
+        )
         self.agent_economics_map: Dict[str, AgentEconomics] = {}
         self.price_expectations: Dict[str, Dict[str, float]] = {}  # agent_id → resource → EWA price
 

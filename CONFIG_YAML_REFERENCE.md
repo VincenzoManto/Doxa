@@ -218,8 +218,25 @@ global_rules:
 | `on_trade_rejected.trust_delta` | number | `-0.02` | Trust change applied from the **rejector toward the proposer** when a trade is rejected. |
 | `on_broadcast.trust_delta` | number | `0.01` | Trust boost applied from the broadcasting agent to every agent that receives the broadcast. |
 | `trust_decay_rate` | number | `0.0` | Per-step decay toward neutral (0.5) applied to **all** trust edges after maintenance. |
-| `panic_decay_rate` | number | `0.0` | Per-step reduction of the `panic` resource toward 0 applied to every agent after maintenance. |
+| `panic_decay_rate` | number | `0.0` | Per-step reduction of the panic resource (see `panic_resource` below) toward 0 applied to every agent after maintenance. |
 | `portfolio_distress_panic_rate` | number | `0.0` | When > 0, agents whose total portfolio value dropped compared to the previous step gain `drop_fraction × distress_rate` panic each step. |
+
+> **`panic_resource`** (top-level `global_rules` key, not nested under
+> `relation_dynamics` — default: `"panic"`). Name of the bounded resource
+> that `panic_decay_rate`, `portfolio_distress_panic_rate`, and the
+> `system_panic` macro metric all read/write. Every launch scenario uses
+> the default, so no existing YAML needs to change. Non-economic scenarios
+> can point this at a domain-appropriate resource instead — e.g. a
+> behavioral-health scenario might set `panic_resource: relapse_risk` to
+> reuse this decay/contagion/metric machinery without calling anything
+> literally "panic":
+> ```yaml
+> global_rules:
+>   panic_resource: relapse_risk
+>   relation_dynamics:
+>     panic_decay_rate: 0.06
+>     portfolio_distress_panic_rate: 0.08
+> ```
 
 ---
 
