@@ -344,13 +344,14 @@ actors:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `trading_mode` | string | `otc` | Which trading channels are available: `otc` — OTC bilateral trades only (`make_trade_offer`, `accept_trade`, `reject_trade`); `lob` — limit-order-book only (`place_buy_order`, `place_sell_order`, market orders, `cancel_order`, `get_market_price`, `get_order_book`); `both` — both channels available simultaneously. |
+| `trading_mode` | string | `otc` | Which order-execution channels are available: `otc` — OTC bilateral trades only (`make_trade_offer`, `accept_trade`, `reject_trade`); `lob` — limit-order-book execution only (`place_buy_order`, `place_sell_order`, market orders, `cancel_order`); `both` — both channels available simultaneously. Note: reading market data (`get_market_price`, `get_order_book`) is governed separately by `can_observe`, not by `trading_mode`. |
 
 ### 2.7 Capability flags
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `can_trade` | boolean | `true` | If `false`, all trade-related tools are withheld from the agent. |
+| `can_trade` | boolean | `true` | If `false`, all trade-execution tools (OTC and/or LOB, per `trading_mode`) are withheld from the agent. Does not affect market observation — see `can_observe`. |
+| `can_observe` | boolean | `true` | If `false`, `get_market_price` and `get_order_book` are withheld. Independent of `can_trade`/`trading_mode`, so an agent can observe the market without being able to trade (e.g. a `state` actor with `trading_mode: otc`), or be denied observation entirely to model information asymmetry between insiders and outsiders. |
 | `can_think` | boolean | `true` | If `false`, the `think` tool is withheld (the agent cannot log explicit thoughts). |
 | `can_chat` | boolean | `true` | If `false`, `send_message` and `broadcast` are withheld. |
 | `can_rag` | boolean | `true` | If `false`, RAG memory tools (`save_knowledge`, `query_knowledge`) are withheld and no ChromaDB collection is created for this agent. |
