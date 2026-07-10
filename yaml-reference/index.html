@@ -2468,7 +2468,7 @@ identical agents.</p>
 <td><code>trading_mode</code></td>
 <td>string</td>
 <td><code>otc</code></td>
-<td>Which trading channels are available: <code>otc</code> — OTC bilateral trades only (<code>make_trade_offer</code>, <code>accept_trade</code>, <code>reject_trade</code>); <code>lob</code> — limit-order-book only (<code>place_buy_order</code>, <code>place_sell_order</code>, market orders, <code>cancel_order</code>, <code>get_market_price</code>, <code>get_order_book</code>); <code>both</code> — both channels available simultaneously.</td>
+<td>Which order-execution channels are available: <code>otc</code> — OTC bilateral trades only (<code>make_trade_offer</code>, <code>accept_trade</code>, <code>reject_trade</code>); <code>lob</code> — limit-order-book execution only (<code>place_buy_order</code>, <code>place_sell_order</code>, market orders, <code>cancel_order</code>); <code>both</code> — both channels available simultaneously. Note: reading market data (<code>get_market_price</code>, <code>get_order_book</code>) is governed separately by <code>can_observe</code>, not by <code>trading_mode</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -2487,7 +2487,13 @@ identical agents.</p>
 <td><code>can_trade</code></td>
 <td>boolean</td>
 <td><code>true</code></td>
-<td>If <code>false</code>, all trade-related tools are withheld from the agent.</td>
+<td>If <code>false</code>, all trade-execution tools (OTC and/or LOB, per <code>trading_mode</code>) are withheld from the agent. Does not affect market observation — see <code>can_observe</code>.</td>
+</tr>
+<tr>
+<td><code>can_observe</code></td>
+<td>boolean</td>
+<td><code>true</code></td>
+<td>If <code>false</code>, <code>get_market_price</code> and <code>get_order_book</code> are withheld. Independent of <code>can_trade</code>/<code>trading_mode</code>, so an agent can observe the market without being able to trade (e.g. a <code>state</code> actor with <code>trading_mode: otc</code>), or be denied observation entirely to model information asymmetry between insiders and outsiders.</td>
 </tr>
 <tr>
 <td><code>can_think</code></td>
