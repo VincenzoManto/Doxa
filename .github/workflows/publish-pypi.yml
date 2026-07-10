@@ -26,6 +26,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install build twine
 
+      - name: Set package version from input
+        working-directory: server
+        run: |
+          sed -i "s/^version = .*/version = \"${{ github.event.inputs.version }}\"/" pyproject.toml
+          grep -q "^version = \"${{ github.event.inputs.version }}\"\$" pyproject.toml || \
+            { echo "::error::Failed to set version to ${{ github.event.inputs.version }} in pyproject.toml"; exit 1; }
+          grep '^version' pyproject.toml
+
       - name: Build package
         working-directory: server
         run: |
