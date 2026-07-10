@@ -25,7 +25,8 @@ Architecture
   1. *Standard tools* (``_register_standard_tools``): messaging, OTC
      trades, LOB orders, market queries, RAG memory, leader delegation.
      Which tools are available depends on ``trading_mode``, ``can_trade``,
-     ``can_think``, ``can_chat``, ``can_rag``, and ``leader`` flags.
+     ``can_observe``, ``can_think``, ``can_chat``, ``can_rag``, and
+     ``leader`` flags.
   2. *Custom operations* (``_register_custom_ops``): operations declared
      under ``global_rules.operations`` and ``actor.operations`` in YAML
      are wrapped into callable LLM tools automatically.
@@ -300,11 +301,16 @@ class DoxaAgent(autogen.ConversableAgent):
         win_conditions = self.env.global_rules.get("victory_conditions", []) + self.config.get("victory_conditions", [])
         market_mode = ""
         if self.config.get('trading_mode') == 'lob':
-            market_mode = "limit order book (use place_buy_order, place_sell_order, get_market_price, get_order_book)"
+            market_mode = "limit order book (use place_buy_order, place_sell_order, place_market_buy_order, place_market_sell_order, cancel_order)"
         elif self.config.get('trading_mode') == 'otc':
             market_mode = "OTC bilateral trades (use make_trade_offer, accept_trade, reject_trade)"
         else:
             market_mode = "both limit order book and OTC bilateral trades. Use what's more convenient."
+        if self.config.get('can_observe', True):
+            market_mode += (" You can also call get_market_price and get_order_book at any "
+                             "time to read current prices/the order book, regardless of your trading mode.")
+        else:
+            market_mode += " You cannot observe market prices or the order book directly."
 
         constraints = {
             **deepcopy(self.env.global_rules.get("constraints", {})),
@@ -341,9 +347,13 @@ OTHERS: {other_agents}
 
         * ``can_trade`` (default ``True``) + ``trading_mode`` (``otc`` | ``lob`` | ``both``)
           — enables OTC trade tools (make_trade_offer, accept_trade, reject_trade)
-            and/or LOB tools (place_buy_order, place_sell_order,
-            place_market_buy_order, place_market_sell_order, cancel_order,
-            get_market_price, get_order_book).
+            and/or LOB order-execution tools (place_buy_order, place_sell_order,
+            place_market_buy_order, place_market_sell_order, cancel_order).
+        * ``can_observe`` (default ``True``) — enables ``get_market_price``
+          and ``get_order_book``. Independent of ``can_trade``/``trading_mode``:
+          an agent can read prices and the book without being able to trade
+          (e.g. a `state` actor in ``trading_mode: otc``), and conversely can
+          be denied observation to model information asymmetry.
         * ``can_think`` (default ``True``) — enables the ``think`` tool.
         * ``can_chat``  (default ``True``) — enables ``send_message`` and ``broadcast``.
         * ``can_rag``   (inferred from actor config, default ``True``) — enables
@@ -358,6 +368,13 @@ OTHERS: {other_agents}
         can_chat = self.config.get('can_chat', True)
         can_rag = self.can_rag
         trading_mode = self.config.get('trading_mode', 'otc')   # otc | lob | both
+        # Market observation (get_market_price, get_order_book) is an
+        # independent capability from order execution: a regulatory or
+        # macro agent (e.g. a `state` actor with trading_mode: otc) may
+        # need to read the book without ever placing LOB orders. Defaults
+        # to True; set to False to model information asymmetry (e.g. an
+        # outsider agent that cannot observe the market at all).
+        can_observe = self.config.get('can_observe', True)
         def build_reference_prices() -> Dict[str, float]:
             prices: Dict[str, float] = {"credits": 1.0, "panic": 0.0}
             me = getattr(self.env, 'market_engine', None)
@@ -626,7 +643,9 @@ OTHERS: {other_agents}
         if can_trade and trading_mode in ('lob', 'both'):
             available_tools += [place_buy_order, place_sell_order,
                                 place_market_buy_order, place_market_sell_order,
-                                cancel_order, get_market_price, get_order_book]
+                                cancel_order]
+        if can_observe:
+            available_tools += [get_market_price, get_order_book]
         if can_think:
             available_tools.append(think)
         if can_chat:
